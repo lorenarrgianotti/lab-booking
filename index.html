@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lab room booking</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script>
+/* ============================================================
+   CONFIGURATION — the only part of this file you need to edit.
+   Both values are in Supabase → Project settings → API.
+   ============================================================ */
+const CONFIG = {
+  supabaseUrl:     "https://anrqyvwamarqpgcxqmwp.supabase.co",
+  supabaseAnonKey: "sb_publishable_8yd8of9evF_aOoz_d4HW_w_kLLKDh-9",
+  loginEmail:      "lorena.gianotti@unibe.ch",   // the shared group account created in Supabase → Authentication
+  appTitle:        "Lab room booking",
+};
+</script>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --panel: #ffffff;
+    --line: #e3e6ea;
+    --line-strong: #c9ced6;
+    --text: #1f2430;
+    --muted: #6b7280;
+    --accent: #2f6fdb;
+    --accent-soft: #e8f0fe;
+    --danger: #c53030;
+    --danger-soft: #fdecec;
+    --past: #f0f1f3;
+    --booking: #d8e6fb;
+    --booking-border: #7ea6ea;
+    --booking-past: #e6e8ec;
+    --today: #fff8e6;
+    --slot-h: 26px;
+    --time-col: 56px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  [hidden] { display: none !important; }
+
+  header { background: var(--panel); border-bottom: 1px solid var(--line); }
+  .bar { max-width: 1200px; margin: 0 auto; padding: 10px 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .bar h1 { font-size: 17px; margin: 0; font-weight: 650; letter-spacing: -0.01em; }
+  .spacer { flex: 1; }
+  .btn { border: 1px solid var(--line-strong); background: var(--panel); border-radius: 8px; padding: 6px 12px; }
+  .btn:hover { background: #f2f4f7; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { filter: brightness(0.95); }
+  .btn.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+  .btn.quiet { border-color: transparent; color: var(--muted); }
+  .btn:disabled { opacity: .55; cursor: default; }
+
+  main { max-width: 1200px; margin: 0 auto; padding: 14px 16px 40px; }
+
+  /* login */
+  .login { max-width: 360px; margin: 10vh auto; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 24px; }
+  .login h2 { margin: 0 0 4px; font-size: 18px; }
+  .login p { margin: 0 0 16px; color: var(--muted); }
+  .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+  .field label { font-size: 12.5px; color: var(--muted); }
+  .field input, .field select, .field textarea { border: 1px solid var(--line-strong); border-radius: 8px; padding: 8px 10px; background: #fff; width: 100%; }
+  .field textarea { min-height: 60px; resize: vertical; }
+  .error { color: var(--danger); font-size: 13px; margin: 6px 0 0; }
+
+  /* toolbar */
+  .toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+  .tabs { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 8px; overflow: hidden; }
+  .tabs button { border: 0; background: var(--panel); padding: 6px 14px; }
+  .tabs button + button { border-left: 1px solid var(--line-strong); }
+  .tabs button.active { background: var(--accent); color: #fff; }
+  .weeknav { display: inline-flex; align-items: center; gap: 6px; }
+  .weeklabel { font-weight: 600; min-width: 190px; text-align: center; }
+  .hint { color: var(--muted); font-size: 13px; }
+
+  /* grid */
+  .gridwrap { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow-x: auto; }
+  .grid { display: grid; min-width: 640px; grid-template-columns: var(--time-col) repeat(var(--days), minmax(90px, 1fr)); }
+  .grid .corner, .grid .dayhead { position: sticky; top: 0; z-index: 3; background: var(--panel); border-bottom: 1px solid var(--line-strong); }
+  .dayhead { padding: 8px 6px; text-align: center; border-left: 1px solid var(--line); }
+  .dayhead .dow { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .dayhead .dom { font-size: 16px; font-weight: 650; }
+  .dayhead.today .dom { color: var(--accent); }
+  .timecol, .daycol { margin-top: 10px; margin-bottom: 12px; }
+  .timecol { position: relative; }
+  .timelabel { position: absolute; right: 8px; transform: translateY(-50%); font-size: 11.5px; color: var(--muted); }
+  .daycol { position: relative; border-left: 1px solid var(--line); }
+  .daycol.today { background: var(--today); }
+  .slot { height: var(--slot-h); border-bottom: 1px solid var(--line); }
+  .slot.hour { border-bottom-color: var(--line-strong); }
+  .slot.free:hover { background: var(--accent-soft); cursor: pointer; }
+  .slot.past, .slot.closed { background: var(--past); }
+  .daycol.today .slot.past { background: #efeadb; }
+  .booking { position: absolute; left: 3px; right: 3px; background: var(--booking); border: 1px solid var(--booking-border); border-left-width: 4px;
+    border-radius: 6px; padding: 3px 6px; overflow: hidden; cursor: pointer; font-size: 12px; line-height: 1.3; }
+  .booking:hover { filter: brightness(0.97); }
+  .booking.past { background: var(--booking-past); border-color: #b9bec7; cursor: default; }
+  .booking .t { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .booking .by { color: #3b4658; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .nowline { position: absolute; left: 0; right: 0; height: 0; border-top: 2px solid #e0443e; z-index: 2; pointer-events: none; }
+  .nowline::before { content: ""; position: absolute; left: -4px; top: -5px; width: 8px; height: 8px; border-radius: 50%; background: #e0443e; }
+
+  /* modal */
+  .backdrop { position: fixed; inset: 0; background: rgba(20,24,32,.45); display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 10; }
+  .modal { background: var(--panel); border-radius: 12px; width: 100%; max-width: 420px; padding: 20px; box-shadow: 0 20px 60px rgba(0,0,0,.25); }
+  .modal h3 { margin: 0 0 2px; font-size: 17px; }
+  .modal .sub { color: var(--muted); margin: 0 0 14px; }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; flex-wrap: wrap; }
+  .details dt { color: var(--muted); font-size: 12.5px; margin-top: 8px; }
+  .details dd { margin: 0; }
+  .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: #1f2430; color: #fff; padding: 10px 16px; border-radius: 10px; z-index: 20; max-width: 90vw; }
+  .toast.err { background: var(--danger); }
+
+  .setup { max-width: 640px; margin: 8vh auto; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 24px; }
+  .setup code { background: #f0f2f5; padding: 1px 5px; border-radius: 4px; }
+  @media (max-width: 600px) { :root { --slot-h: 24px; --time-col: 48px; } .weeklabel { min-width: 0; } }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="bar">
+    <h1 id="appTitle">Lab room booking</h1>
+    <div class="spacer"></div>
+    <button id="logoutBtn" class="btn quiet" hidden>Sign out</button>
+  </div>
+</header>
+
+<main>
+  <!-- shown only if CONFIG has not been filled in -->
+  <section id="setupView" class="setup" hidden>
+    <h2>Almost there</h2>
+    <p>This page is not configured yet. Open <code>index.html</code> and fill in <code>supabaseUrl</code>, <code>supabaseAnonKey</code> and <code>loginEmail</code> in the <code>CONFIG</code> block at the top of the file.</p>
+  </section>
+
+  <section id="loginView" class="login" hidden>
+    <h2>Sign in</h2>
+    <p>Enter the group password to see and book the lab rooms.</p>
+    <form id="loginForm">
+      <div class="field">
+        <label for="password">Group password</label>
+        <input id="password" type="password" autocomplete="current-password" required autofocus>
+      </div>
+      <button class="btn primary" type="submit" id="loginBtn" style="width:100%">Sign in</button>
+      <p class="error" id="loginError" hidden></p>
+    </form>
+  </section>
+
+  <section id="appView" hidden>
+    <div class="toolbar">
+      <div class="tabs" id="roomTabs"></div>
+      <div class="weeknav">
+        <button class="btn" id="prevWeek" title="Previous week">&#8249;</button>
+        <button class="btn" id="todayBtn">Today</button>
+        <button class="btn" id="nextWeek" title="Next week">&#8250;</button>
+        <span class="weeklabel" id="weekLabel"></span>
+      </div>
+      <div class="spacer"></div>
+      <span class="hint" id="hint">Click a free slot to book it.</span>
+    </div>
+    <div class="gridwrap"><div class="grid" id="grid"></div></div>
+  </section>
+</main>
+
+<!-- new booking -->
+<div id="bookModal" class="backdrop" hidden>
+  <form class="modal" id="bookForm">
+    <h3>New booking</h3>
+    <p class="sub" id="bookSub"></p>
+    <div class="row2">
+      <div class="field"><label for="startSel">From</label><select id="startSel"></select></div>
+      <div class="field"><label for="endSel">To</label><select id="endSel"></select></div>
+    </div>
+    <div class="field"><label for="titleInp">Experiment / project *</label><input id="titleInp" required maxlength="120" placeholder="e.g. EEG study on prosocial decisions"></div>
+    <div class="field"><label for="nameInp">Your name *</label><input id="nameInp" required maxlength="60"></div>
+    <div class="field"><label for="notesInp">Notes (optional)</label><textarea id="notesInp" maxlength="500" placeholder="e.g. participant arrives 15 min early"></textarea></div>
+    <p class="error" id="bookError" hidden></p>
+    <div class="actions">
+      <button type="button" class="btn" id="bookCancel">Close</button>
+      <button type="submit" class="btn primary" id="bookSave">Book</button>
+    </div>
+  </form>
+</div>
+
+<!-- booking details -->
+<div id="detailModal" class="backdrop" hidden>
+  <div class="modal">
+    <h3 id="dTitle"></h3>
+    <p class="sub" id="dSub"></p>
+    <dl class="details">
+      <dt>Booked by</dt><dd id="dBy"></dd>
+      <dt>Notes</dt><dd id="dNotes"></dd>
+    </dl>
+    <p class="error" id="dError" hidden></p>
+    <div class="actions">
+      <button type="button" class="btn" id="dClose">Close</button>
+      <button type="button" class="btn danger" id="dCancel">Cancel this booking</button>
+      <button type="button" class="btn danger" id="dConfirm" hidden>Yes, cancel it</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const SLOT_MIN = 30;
+
+  // ---------- Supabase client ----------
+  const configured = CONFIG.supabaseUrl && !CONFIG.supabaseUrl.includes("YOUR-") && CONFIG.supabaseAnonKey && !CONFIG.supabaseAnonKey.includes("YOUR-");
+  const client = window.__supabaseMock || (configured ? supabase.createClient(CONFIG.supabaseUrl, CONFIG.supabaseAnonKey) : null);
+  $("appTitle").textContent = CONFIG.appTitle || "Lab room booking";
+  document.title = CONFIG.appTitle || "Lab room booking";
+
+  // ---------- state ----------
+  const state = {
+    rooms: [], roomId: null,
+    settings: { openMin: 7 * 60, closeMin: 20 * 60, weekdaysOnly: true, horizonDays: 90 },
+    weekStart: startOfWeek(new Date()),
+    bookings: [],       // bookings of the visible week (all rooms)
+    channel: null, nowTimer: null,
+  };
+
+  // ---------- date helpers (all in the browser's local time) ----------
+  function startOfWeek(d) { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); const dow = (x.getDay() + 6) % 7; x.setDate(x.getDate() - dow); return x; }
+  // "this week" — on a weekend, when only weekdays are bookable, that means the coming week
+  function currentWeek() { const now = new Date(); const ws = startOfWeek(now); return (state.settings.weekdaysOnly && (now.getDay() === 0 || now.getDay() === 6)) ? addDays(ws, 7) : ws; }
+  function addDays(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
+  function atMinutes(day, min) { return new Date(day.getFullYear(), day.getMonth(), day.getDate(), 0, min, 0, 0); }
+  function sameDay(a, b) { return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate(); }
+  function hhmm(min) { return String(Math.floor(min / 60)).padStart(2, "0") + ":" + String(min % 60).padStart(2, "0"); }
+  function timeOf(d) { return hhmm(d.getHours() * 60 + d.getMinutes()); }
+  function parseHHMM(s) { const [h, m] = String(s).split(":").map(Number); return h * 60 + (m || 0); }
+  const fmtDay = new Intl.DateTimeFormat("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  const fmtShort = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" });
+  const fmtDow = new Intl.DateTimeFormat("en-GB", { weekday: "short" });
+  function isoWeek(d) { const x = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())); const dow = x.getUTCDay() || 7; x.setUTCDate(x.getUTCDate() + 4 - dow); const y0 = new Date(Date.UTC(x.getUTCFullYear(), 0, 1)); return Math.ceil(((x - y0) / 864e5 + 1) / 7); }
+
+  // ---------- ui helpers ----------
+  let toastTimer;
+  function toast(msg, isError) { const t = $("toast"); t.textContent = msg; t.className = "toast" + (isError ? " err" : ""); t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => t.hidden = true, isError ? 6000 : 3000); }
+  function friendlyError(err) {
+    const m = (err && (err.message || String(err))) || "Unknown error";
+    if (err && err.code === "23P01") return "This slot has just been taken by someone else. The calendar has been refreshed.";
+    if (err && err.code === "23514") return "Please fill in all required fields.";
+    return m.replace(/^.*?exception:\s*/i, "");
+  }
+  function show(view) { for (const v of ["setupView", "loginView", "appView"]) $(v).hidden = v !== view; $("logoutBtn").hidden = view !== "appView"; }
+
+  // ---------- auth ----------
+  async function init() {
+    if (!client) { show("setupView"); return; }
+    const { data } = await client.auth.getSession();
+    if (data && data.session) await enterApp(); else show("loginView");
+    client.auth.onAuthStateChange((event) => { if (event === "SIGNED_OUT") { leaveApp(); show("loginView"); } });
+  }
+
+  $("loginForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    $("loginError").hidden = true; $("loginBtn").disabled = true;
+    const { error } = await client.auth.signInWithPassword({ email: CONFIG.loginEmail, password: $("password").value });
+    $("loginBtn").disabled = false;
+    if (error) { $("loginError").textContent = /invalid/i.test(error.message) ? "Wrong password." : error.message; $("loginError").hidden = false; return; }
+    $("password").value = "";
+    await enterApp();
+  });
+  $("logoutBtn").addEventListener("click", () => client.auth.signOut());
+
+  async function enterApp() {
+    show("appView");
+    try { await loadStatic(); state.weekStart = currentWeek(); await loadWeek(); subscribe(); }
+    catch (err) { toast(friendlyError(err), true); }
+    clearInterval(state.nowTimer); state.nowTimer = setInterval(render, 60 * 1000);
+  }
+  function leaveApp() { if (state.channel) { client.removeChannel(state.channel); state.channel = null; } clearInterval(state.nowTimer); }
+
+  // ---------- data ----------
+  async function loadStatic() {
+    const r = await client.from("rooms").select("id,name,sort_order").order("sort_order");
+    if (r.error) throw r.error;
+    state.rooms = r.data; if (!state.rooms.some(x => x.id === state.roomId)) state.roomId = state.rooms.length ? state.rooms[0].id : null;
+    const s = await client.from("settings").select("key,value");
+    if (s.error) throw s.error;
+    const map = Object.fromEntries(s.data.map(x => [x.key, x.value]));
+    state.settings.openMin = map.open_time ? parseHHMM(map.open_time) : 7 * 60;
+    state.settings.closeMin = map.close_time ? parseHHMM(map.close_time) : 20 * 60;
+    state.settings.weekdaysOnly = map.weekdays_only !== "false";
+    state.settings.horizonDays = map.max_horizon_days != null ? Number(map.max_horizon_days) : 90;
+    renderTabs();
+  }
+  async function loadWeek() {
+    const from = state.weekStart, to = addDays(from, 7);
+    const q = await client.from("bookings").select("id,room_id,starts_at,ends_at,title,booked_by,notes")
+      .gte("starts_at", from.toISOString()).lt("starts_at", to.toISOString()).order("starts_at");
+    if (q.error) throw q.error;
+    state.bookings = q.data.map(b => ({ ...b, start: new Date(b.starts_at), end: new Date(b.ends_at) }));
+    render();
+  }
+  function subscribe() {
+    if (state.channel || !client.channel) return;
+    state.channel = client.channel("bookings-live")
+      .on("postgres_changes", { event: "*", schema: "public", table: "bookings" }, () => loadWeek().catch(() => {}))
+      .subscribe();
+  }
+
+  // ---------- rendering ----------
+  function renderTabs() {
+    const t = $("roomTabs"); t.innerHTML = "";
+    for (const r of state.rooms) {
+      const b = document.createElement("button"); b.type = "button"; b.textContent = r.name; b.className = r.id === state.roomId ? "active" : "";
+      b.addEventListener("click", () => { state.roomId = r.id; renderTabs(); render(); });
+      t.appendChild(b);
+    }
+  }
+  function render() {
+    const { openMin, closeMin, weekdaysOnly, horizonDays } = state.settings;
+    const nDays = weekdaysOnly ? 5 : 7;
+    const nSlots = Math.max(0, Math.round((closeMin - openMin) / SLOT_MIN));
+    const now = new Date();
+    const horizon = horizonDays > 0 ? new Date(now.getTime() + horizonDays * 864e5) : null;
+    const ws = state.weekStart, we = addDays(ws, nDays - 1);
+    $("weekLabel").textContent = `${fmtShort.format(ws)} – ${fmtShort.format(we)} ${we.getFullYear()} · week ${isoWeek(ws)}`;
+
+    const g = $("grid"); g.innerHTML = ""; g.style.setProperty("--days", nDays);
+    const corner = document.createElement("div"); corner.className = "corner"; g.appendChild(corner);
+    const days = [];
+    for (let i = 0; i < nDays; i++) {
+      const d = addDays(ws, i); days.push(d);
+      const h = document.createElement("div"); h.className = "dayhead" + (sameDay(d, now) ? " today" : "");
+      h.innerHTML = `<div class="dow">${fmtDow.format(d)}</div><div class="dom">${d.getDate()}</div>`; g.appendChild(h);
+    }
+    const slotH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--slot-h")) || 26;
+    // time column
+    const tc = document.createElement("div"); tc.className = "timecol"; tc.style.height = (nSlots * slotH) + "px";
+    for (let s = 0; s <= nSlots; s += 2) { const l = document.createElement("div"); l.className = "timelabel"; l.style.top = (s * slotH) + "px"; l.textContent = hhmm(openMin + s * SLOT_MIN); tc.appendChild(l); }
+    g.appendChild(tc);
+    // day columns
+    days.forEach((d) => {
+      const col = document.createElement("div"); col.className = "daycol" + (sameDay(d, now) ? " today" : "");
+      for (let s = 0; s < nSlots; s++) {
+        const min = openMin + s * SLOT_MIN; const start = atMinutes(d, min), end = atMinutes(d, min + SLOT_MIN);
+        const cell = document.createElement("div");
+        const past = end <= now, beyond = horizon && start > horizon;
+        cell.className = "slot" + (((min + SLOT_MIN) % 60 === 0) ? " hour" : "") + (past ? " past" : beyond ? " closed" : " free");
+        cell.title = past ? "" : beyond ? `Bookings are possible at most ${horizonDays} days in advance` : `${timeOf(start)}–${timeOf(end)}`;
+        if (!past && !beyond) cell.addEventListener("click", () => openBooking(d, min));
+        col.appendChild(cell);
+      }
+      // bookings of this room and day
+      for (const b of state.bookings) {
+        if (b.room_id !== state.roomId || !sameDay(b.start, d)) continue;
+        const sMin = b.start.getHours() * 60 + b.start.getMinutes(), eMin = b.end.getHours() * 60 + b.end.getMinutes();
+        const top = Math.max(0, (sMin - openMin) / SLOT_MIN) * slotH, bottom = Math.min(nSlots, (eMin - openMin) / SLOT_MIN) * slotH;
+        if (bottom <= top) continue;
+        const el = document.createElement("div"); el.className = "booking" + (b.end <= now ? " past" : "");
+        el.style.top = (top + 1) + "px"; el.style.height = (bottom - top - 3) + "px";
+        el.innerHTML = `<div class="t"></div><div class="by"></div>`;
+        el.querySelector(".t").textContent = b.title; el.querySelector(".by").textContent = `${timeOf(b.start)}–${timeOf(b.end)} · ${b.booked_by}`;
+        el.title = `${b.title}\n${timeOf(b.start)}–${timeOf(b.end)} · ${b.booked_by}` + (b.notes ? `\n${b.notes}` : "");
+        el.addEventListener("click", (ev) => { ev.stopPropagation(); openDetails(b); });
+        col.appendChild(el);
+      }
+      if (sameDay(d, now)) { const nm = now.getHours() * 60 + now.getMinutes(); if (nm >= openMin && nm <= closeMin) { const ln = document.createElement("div"); ln.className = "nowline"; ln.style.top = ((nm - openMin) / SLOT_MIN * slotH) + "px"; col.appendChild(ln); } }
+      g.appendChild(col);
+    });
+  }
+
+  $("prevWeek").addEventListener("click", () => { state.weekStart = addDays(state.weekStart, -7); loadWeek().catch(e => toast(friendlyError(e), true)); });
+  $("nextWeek").addEventListener("click", () => { state.weekStart = addDays(state.weekStart, 7); loadWeek().catch(e => toast(friendlyError(e), true)); });
+  $("todayBtn").addEventListener("click", () => { state.weekStart = currentWeek(); loadWeek().catch(e => toast(friendlyError(e), true)); });
+
+  // ---------- new booking ----------
+  let draft = null;
+  function openBooking(day, clickedMin) {
+    const { openMin, closeMin } = state.settings;
+    const now = new Date();
+    // free span around the clicked slot within this room and day
+    const dayBookings = state.bookings.filter(b => b.room_id === state.roomId && sameDay(b.start, day)).map(b => ({ s: b.start.getHours() * 60 + b.start.getMinutes(), e: b.end.getHours() * 60 + b.end.getMinutes() }));
+    let spanStart = openMin, spanEnd = closeMin;
+    for (const b of dayBookings) { if (b.e <= clickedMin && b.e > spanStart) spanStart = b.e; if (b.s >= clickedMin + SLOT_MIN && b.s < spanEnd) spanEnd = b.s; }
+    // do not offer slots that are already over
+    if (sameDay(day, now)) { const nowMin = now.getHours() * 60 + now.getMinutes(); const firstOk = Math.floor(nowMin / SLOT_MIN) * SLOT_MIN; if (firstOk > spanStart) spanStart = firstOk; }
+    draft = { day, spanStart, spanEnd };
+    const room = state.rooms.find(r => r.id === state.roomId);
+    $("bookSub").textContent = `${room ? room.name : ""} · ${fmtDay.format(day)}`;
+    const ss = $("startSel"); ss.innerHTML = "";
+    for (let m = spanStart; m < spanEnd; m += SLOT_MIN) ss.add(new Option(hhmm(m), m));
+    ss.value = clickedMin;
+    fillEnd(clickedMin + SLOT_MIN);
+    $("titleInp").value = ""; $("notesInp").value = "";
+    try { $("nameInp").value = localStorage.getItem("labbooking.name") || ""; } catch (_) {}
+    $("bookError").hidden = true; $("bookSave").disabled = false;
+    $("bookModal").hidden = false; $("titleInp").focus();
+  }
+  function fillEnd(preferred) {
+    const es = $("endSel"); const start = Number($("startSel").value); es.innerHTML = "";
+    for (let m = start + SLOT_MIN; m <= draft.spanEnd; m += SLOT_MIN) es.add(new Option(hhmm(m), m));
+    es.value = (preferred && preferred > start && preferred <= draft.spanEnd) ? preferred : start + SLOT_MIN;
+  }
+  $("startSel").addEventListener("change", () => fillEnd(Number($("endSel").value)));
+  $("bookCancel").addEventListener("click", () => $("bookModal").hidden = true);
+  $("bookModal").addEventListener("click", (e) => { if (e.target === $("bookModal")) $("bookModal").hidden = true; });
+  $("bookForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const title = $("titleInp").value.trim(), name = $("nameInp").value.trim(), notes = $("notesInp").value.trim();
+    if (!title || !name) { $("bookError").textContent = "Please enter the experiment and your name."; $("bookError").hidden = false; return; }
+    const starts = atMinutes(draft.day, Number($("startSel").value)), ends = atMinutes(draft.day, Number($("endSel").value));
+    $("bookSave").disabled = true; $("bookError").hidden = true;
+    const { error } = await client.from("bookings").insert({ room_id: state.roomId, starts_at: starts.toISOString(), ends_at: ends.toISOString(), title, booked_by: name, notes: notes || null });
+    $("bookSave").disabled = false;
+    if (error) { $("bookError").textContent = friendlyError(error); $("bookError").hidden = false; if (error.code === "23P01") loadWeek().catch(() => {}); return; }
+    try { localStorage.setItem("labbooking.name", name); } catch (_) {}
+    $("bookModal").hidden = true;
+    toast(`Booked ${timeOf(starts)}–${timeOf(ends)}.`);
+    await loadWeek().catch(err => toast(friendlyError(err), true));
+  });
+
+  // ---------- details / cancel ----------
+  let current = null;
+  function openDetails(b) {
+    current = b;
+    const room = state.rooms.find(r => r.id === b.room_id);
+    $("dTitle").textContent = b.title;
+    $("dSub").textContent = `${room ? room.name : ""} · ${fmtDay.format(b.start)} · ${timeOf(b.start)}–${timeOf(b.end)}`;
+    $("dBy").textContent = b.booked_by; $("dNotes").textContent = b.notes || "—";
+    const past = b.end <= new Date();
+    $("dCancel").hidden = past; $("dConfirm").hidden = true; $("dError").hidden = true; $("dCancel").disabled = false;
+    $("detailModal").hidden = false;
+  }
+  $("dClose").addEventListener("click", () => $("detailModal").hidden = true);
+  $("detailModal").addEventListener("click", (e) => { if (e.target === $("detailModal")) $("detailModal").hidden = true; });
+  $("dCancel").addEventListener("click", () => { $("dCancel").hidden = true; $("dConfirm").hidden = false; });
+  $("dConfirm").addEventListener("click", async () => {
+    $("dConfirm").disabled = true;
+    const { error } = await client.from("bookings").delete().eq("id", current.id);
+    $("dConfirm").disabled = false;
+    if (error) { $("dError").textContent = friendlyError(error); $("dError").hidden = false; return; }
+    $("detailModal").hidden = true; toast("Booking cancelled.");
+    await loadWeek().catch(err => toast(friendlyError(err), true));
+  });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") { $("bookModal").hidden = true; $("detailModal").hidden = true; } });
+
+  init();
+})();
+</script>
+</body>
+</html>
