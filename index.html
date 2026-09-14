@@ -8,12 +8,13 @@
 <script>
 /* ============================================================
    CONFIGURATION — the only part of this file you need to edit.
-   Both values are in Supabase → Project settings → API.
+   Both values are in Supabase → Project settings → API keys.
+   Accounts (email + password) are created by the administrator in
+   Supabase → Authentication → Users; public sign-up must stay disabled.
    ============================================================ */
 const CONFIG = {
   supabaseUrl:     "https://anrqyvwamarqpgcxqmwp.supabase.co",
   supabaseAnonKey: "sb_publishable_8yd8of9evF_aOoz_d4HW_w_kLLKDh-9",
-  loginEmail:      "lorena.gianotti@unibe.ch",   // the shared group account created in Supabase → Authentication
   appTitle:        "SNS lab room booking system",
 };
 </script>
@@ -168,6 +169,8 @@ const CONFIG = {
   <div class="bar">
     <h1 id="appTitle">Lab room booking</h1>
     <div class="spacer"></div>
+    <span class="hint" id="whoami" hidden></span>
+    <button id="pwBtn" class="btn quiet" hidden>Change password</button>
     <button id="logoutBtn" class="btn quiet" hidden>Sign out</button>
   </div>
 </header>
@@ -176,16 +179,20 @@ const CONFIG = {
   <!-- shown only if CONFIG has not been filled in -->
   <section id="setupView" class="setup" hidden>
     <h2>Almost there</h2>
-    <p>This page is not configured yet. Open <code>index.html</code> and fill in <code>supabaseUrl</code>, <code>supabaseAnonKey</code> and <code>loginEmail</code> in the <code>CONFIG</code> block at the top of the file.</p>
+    <p>This page is not configured yet. Open <code>index.html</code> and fill in <code>supabaseUrl</code> and <code>supabaseAnonKey</code> in the <code>CONFIG</code> block at the top of the file.</p>
   </section>
 
   <section id="loginView" class="login" hidden>
     <h2>Sign in</h2>
-    <p>Enter the group password to see and book the lab rooms.</p>
+    <p>Use the personal account you received from the administrator.</p>
     <form id="loginForm">
       <div class="field">
-        <label for="password">Group password</label>
-        <input id="password" type="password" autocomplete="current-password" required autofocus>
+        <label for="email">Email</label>
+        <input id="email" type="email" autocomplete="username" required autofocus>
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input id="password" type="password" autocomplete="current-password" required>
       </div>
       <button class="btn primary" type="submit" id="loginBtn" style="width:100%">Sign in</button>
       <p class="error" id="loginError" hidden></p>
@@ -256,6 +263,7 @@ const CONFIG = {
     <dl class="details">
       <dt>Booked by</dt><dd id="dBy"></dd>
       <dt>Notes</dt><dd id="dNotes"></dd>
+      <dt id="dAccountDt" hidden>Account</dt><dd id="dAccount" hidden></dd>
       <dt id="dSeriesDt" hidden>Series</dt><dd id="dSeries" hidden></dd>
     </dl>
     <p class="error" id="dError" hidden></p>
@@ -268,6 +276,21 @@ const CONFIG = {
       <button type="button" class="btn danger" id="dSeriesConfirm" hidden>Yes, cancel all future dates</button>
     </div>
   </div>
+</div>
+
+<!-- change password -->
+<div id="pwModal" class="backdrop" hidden>
+  <form class="modal" id="pwForm">
+    <h3>Change password</h3>
+    <p class="sub" id="pwSub"></p>
+    <div class="field"><label for="pw1">New password (at least 8 characters)</label><input id="pw1" type="password" autocomplete="new-password" minlength="8" required></div>
+    <div class="field"><label for="pw2">Repeat new password</label><input id="pw2" type="password" autocomplete="new-password" minlength="8" required></div>
+    <p class="error" id="pwError" hidden></p>
+    <div class="actions">
+      <button type="button" class="btn" id="pwCancel">Close</button>
+      <button type="submit" class="btn primary" id="pwSave">Save</button>
+    </div>
+  </form>
 </div>
 
 <div id="toast" class="toast" hidden></div>
@@ -293,6 +316,7 @@ const CONFIG = {
     range: null,             // { from, to } currently loaded
     bookings: [],            // bookings inside range (all rooms)
     channel: null, nowTimer: null,
+    user: null,              // the signed-in account
   };
   try { const v = localStorage.getItem("labbooking.view"); if (["week", "month", "year"].includes(v)) state.view = v; } catch (_) {}
 
@@ -328,29 +352,55 @@ const CONFIG = {
     if (err && err.code === "23514") return "Please fill in all required fields.";
     return m.replace(/^.*?exception:\s*/i, "");
   }
-  function show(view) { for (const v of ["setupView", "loginView", "appView"]) $(v).hidden = v !== view; $("logoutBtn").hidden = view !== "appView"; }
+  function show(view) { for (const v of ["setupView", "loginView", "appView"]) $(v).hidden = v !== view; for (const b of ["logoutBtn", "pwBtn", "whoami"]) $(b).hidden = view !== "appView"; }
+  // a readable name from the account: "anna.rossi@unibe.ch" -> "Anna Rossi" (unless a display name was set)
+  function accountName(u) {
+    if (!u) return "";
+    const m = u.user_metadata || {};
+    if (m.full_name || m.display_name || m.name) return m.full_name || m.display_name || m.name;
+    const local = (u.email || "").split("@")[0];
+    return local.split(/[._-]+/).filter(Boolean).map(p => p[0].toUpperCase() + p.slice(1)).join(" ");
+  }
 
   // ---------- auth ----------
   async function init() {
     if (!client) { show("setupView"); return; }
     const { data } = await client.auth.getSession();
-    if (data && data.session) await enterApp(); else show("loginView");
+    try { $("email").value = localStorage.getItem("labbooking.email") || ""; } catch (_) {}
+    if (data && data.session) { state.user = data.session.user; await enterApp(); } else show("loginView");
     client.auth.onAuthStateChange((event) => { if (event === "SIGNED_OUT") { leaveApp(); show("loginView"); } });
   }
 
   $("loginForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     $("loginError").hidden = true; $("loginBtn").disabled = true;
-    const { error } = await client.auth.signInWithPassword({ email: CONFIG.loginEmail, password: $("password").value });
+    const email = $("email").value.trim();
+    const { data, error } = await client.auth.signInWithPassword({ email, password: $("password").value });
     $("loginBtn").disabled = false;
-    if (error) { $("loginError").textContent = /invalid/i.test(error.message) ? "Wrong password." : error.message; $("loginError").hidden = false; return; }
+    if (error) { $("loginError").textContent = /invalid/i.test(error.message) ? "Wrong email or password." : error.message; $("loginError").hidden = false; return; }
     $("password").value = "";
+    try { localStorage.setItem("labbooking.email", email); } catch (_) {}
+    state.user = data && data.session ? data.session.user : (data && data.user) || null;
     await enterApp();
   });
   $("logoutBtn").addEventListener("click", () => client.auth.signOut());
+  // change password (own account)
+  $("pwBtn").addEventListener("click", () => { $("pwSub").textContent = state.user ? state.user.email : ""; $("pw1").value = ""; $("pw2").value = ""; $("pwError").hidden = true; $("pwModal").hidden = false; $("pw1").focus(); });
+  $("pwCancel").addEventListener("click", () => $("pwModal").hidden = true);
+  $("pwModal").addEventListener("click", (e) => { if (e.target === $("pwModal")) $("pwModal").hidden = true; });
+  $("pwForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if ($("pw1").value !== $("pw2").value) { $("pwError").textContent = "The two passwords are not the same."; $("pwError").hidden = false; return; }
+    $("pwSave").disabled = true; $("pwError").hidden = true;
+    const { error } = await client.auth.updateUser({ password: $("pw1").value });
+    $("pwSave").disabled = false;
+    if (error) { $("pwError").textContent = error.message; $("pwError").hidden = false; return; }
+    $("pwModal").hidden = true; toast("Password changed.");
+  });
 
   async function enterApp() {
     show("appView");
+    $("whoami").textContent = state.user ? (accountName(state.user) + " · " + state.user.email) : "";
     try { await loadStatic(); state.anchor = todayAnchor(); await reload(); subscribe(); }
     catch (err) { toast(friendlyError(err), true); }
     clearInterval(state.nowTimer); state.nowTimer = setInterval(render, 60 * 1000);
@@ -380,7 +430,7 @@ const CONFIG = {
   async function fetchBookings(from, to, roomId) {
     const rows = [];
     for (let offset = 0; ; offset += PAGE) {
-      let q = client.from("bookings").select("id,room_id,starts_at,ends_at,title,booked_by,notes,series_id")
+      let q = client.from("bookings").select("id,room_id,starts_at,ends_at,title,booked_by,notes,series_id,created_by_email")
         .gte("starts_at", from.toISOString()).lt("starts_at", to.toISOString()).order("starts_at").range(offset, offset + PAGE - 1);
       if (roomId != null) q = q.eq("room_id", roomId);
       const r = await q;
@@ -610,7 +660,8 @@ const CONFIG = {
     $("bookSub").textContent = roomName();
     $("dateInp").value = ymd(day); $("dateInp").min = ymd(new Date());
     $("titleInp").value = ""; $("notesInp").value = "";
-    try { $("nameInp").value = localStorage.getItem("labbooking.name") || ""; } catch (_) {}
+    let remembered = ""; try { remembered = localStorage.getItem("labbooking.name") || ""; } catch (_) {}
+    $("nameInp").value = remembered || accountName(state.user);
     resetExtras(false);
     $("bookSave").disabled = false; $("bookModal").hidden = false;
     rebuildTimes(clickedMin, clickedMin + SLOT_MIN).then(() => { if (allDay) applyAllDay(); $("titleInp").focus(); }).catch(e => toast(friendlyError(e), true));
@@ -718,6 +769,7 @@ const CONFIG = {
     $("dBy").textContent = b.booked_by; $("dNotes").textContent = b.notes || "—";
     const past = b.end <= new Date();
     $("dEdit").hidden = past; $("dCancel").hidden = past; $("dConfirm").hidden = true; $("dError").hidden = true; $("dCancel").disabled = false;
+    $("dAccountDt").hidden = !b.created_by_email; $("dAccount").hidden = !b.created_by_email; $("dAccount").textContent = b.created_by_email || "";
     const inSeries = !!b.series_id;
     $("dSeriesDt").hidden = !inSeries; $("dSeries").hidden = !inSeries; $("dSeries").textContent = inSeries ? "Part of a series (edits apply to this date only)" : "";
     $("dSeriesCancel").hidden = !inSeries || past; $("dSeriesConfirm").hidden = true;
@@ -745,7 +797,7 @@ const CONFIG = {
     $("detailModal").hidden = true; toast("Booking cancelled.");
     await reload().catch(err => toast(friendlyError(err), true));
   });
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape") { $("bookModal").hidden = true; $("detailModal").hidden = true; } });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") { $("bookModal").hidden = true; $("detailModal").hidden = true; $("pwModal").hidden = true; } });
 
   init();
 })();
