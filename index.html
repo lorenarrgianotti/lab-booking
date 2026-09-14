@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Lab room booking</title>
+<title>SNS lab room booking system</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script>
 /* ============================================================
@@ -14,7 +14,7 @@ const CONFIG = {
   supabaseUrl:     "https://anrqyvwamarqpgcxqmwp.supabase.co",
   supabaseAnonKey: "sb_publishable_8yd8of9evF_aOoz_d4HW_w_kLLKDh-9",
   loginEmail:      "lorena.gianotti@unibe.ch",   // the shared group account created in Supabase → Authentication
-  appTitle:        "Lab room booking",
+  appTitle:        "SNS lab room booking system",
 };
 </script>
 <style>
@@ -67,6 +67,9 @@ const CONFIG = {
   .field input, .field select, .field textarea { border: 1px solid var(--line-strong); border-radius: 8px; padding: 8px 10px; background: #fff; width: 100%; }
   .field textarea { min-height: 60px; resize: vertical; }
   .error { color: var(--danger); font-size: 13px; margin: 6px 0 0; }
+  .note { color: var(--muted); font-size: 12.5px; margin: -4px 0 10px; }
+  .check { display: flex; align-items: center; gap: 8px; margin: -4px 0 12px; font-size: 13.5px; cursor: pointer; }
+  .check input { width: 16px; height: 16px; }
 
   /* toolbar */
   .toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
@@ -83,6 +86,8 @@ const CONFIG = {
   .grid { display: grid; min-width: 640px; grid-template-columns: var(--time-col) repeat(var(--days), minmax(90px, 1fr)); }
   .grid .corner, .grid .dayhead { position: sticky; top: 0; z-index: 3; background: var(--panel); border-bottom: 1px solid var(--line-strong); }
   .dayhead { padding: 8px 6px; text-align: center; border-left: 1px solid var(--line); }
+  .dayhead.free { cursor: pointer; }
+  .dayhead.free:hover { background: var(--accent-soft); }
   .dayhead .dow { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
   .dayhead .dom { font-size: 16px; font-weight: 650; }
   .dayhead.today .dom { color: var(--accent); }
@@ -107,7 +112,7 @@ const CONFIG = {
 
   /* modal */
   .backdrop { position: fixed; inset: 0; background: rgba(20,24,32,.45); display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 10; }
-  .modal { background: var(--panel); border-radius: 12px; width: 100%; max-width: 420px; padding: 20px; box-shadow: 0 20px 60px rgba(0,0,0,.25); }
+  .modal { background: var(--panel); border-radius: 12px; width: 100%; max-width: 420px; max-height: 100%; overflow-y: auto; padding: 20px; box-shadow: 0 20px 60px rgba(0,0,0,.25); }
   .modal h3 { margin: 0 0 2px; font-size: 17px; }
   .modal .sub { color: var(--muted); margin: 0 0 14px; }
   .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
@@ -218,12 +223,26 @@ const CONFIG = {
       <div class="field"><label for="startSel">From</label><select id="startSel"></select></div>
       <div class="field"><label for="endSel">To</label><select id="endSel"></select></div>
     </div>
+    <label class="check"><input type="checkbox" id="allDayChk"> <span id="allDayLbl">Whole day</span></label>
+    <div class="row2" id="repeatRow">
+      <div class="field"><label for="repeatSel">Repeat</label>
+        <select id="repeatSel">
+          <option value="none">Does not repeat</option>
+          <option value="daily">Every day (Mon–Fri)</option>
+          <option value="weekly">Every week</option>
+          <option value="biweekly">Every 2 weeks</option>
+        </select>
+      </div>
+      <div class="field" id="untilField" hidden><label for="untilInp">Until (inclusive)</label><input id="untilInp" type="date"></div>
+    </div>
+    <p class="note" id="repeatInfo" hidden></p>
     <div class="field"><label for="titleInp">Experiment / project *</label><input id="titleInp" required maxlength="120" placeholder="e.g. EEG study on prosocial decisions"></div>
     <div class="field"><label for="nameInp">Your name *</label><input id="nameInp" required maxlength="60"></div>
     <div class="field"><label for="notesInp">Notes (optional)</label><textarea id="notesInp" maxlength="500" placeholder="e.g. participant arrives 15 min early"></textarea></div>
     <p class="error" id="bookError" hidden></p>
     <div class="actions">
       <button type="button" class="btn" id="bookCancel">Close</button>
+      <button type="button" class="btn" id="bookSkip" hidden>Book only the free dates</button>
       <button type="submit" class="btn primary" id="bookSave">Book</button>
     </div>
   </form>
@@ -237,6 +256,7 @@ const CONFIG = {
     <dl class="details">
       <dt>Booked by</dt><dd id="dBy"></dd>
       <dt>Notes</dt><dd id="dNotes"></dd>
+      <dt id="dSeriesDt" hidden>Series</dt><dd id="dSeries" hidden></dd>
     </dl>
     <p class="error" id="dError" hidden></p>
     <div class="actions">
@@ -244,6 +264,8 @@ const CONFIG = {
       <button type="button" class="btn" id="dEdit">Edit</button>
       <button type="button" class="btn danger" id="dCancel">Cancel this booking</button>
       <button type="button" class="btn danger" id="dConfirm" hidden>Yes, cancel it</button>
+      <button type="button" class="btn danger" id="dSeriesCancel" hidden>Cancel whole series</button>
+      <button type="button" class="btn danger" id="dSeriesConfirm" hidden>Yes, cancel all future dates</button>
     </div>
   </div>
 </div>
@@ -358,7 +380,7 @@ const CONFIG = {
   async function fetchBookings(from, to, roomId) {
     const rows = [];
     for (let offset = 0; ; offset += PAGE) {
-      let q = client.from("bookings").select("id,room_id,starts_at,ends_at,title,booked_by,notes")
+      let q = client.from("bookings").select("id,room_id,starts_at,ends_at,title,booked_by,notes,series_id")
         .gte("starts_at", from.toISOString()).lt("starts_at", to.toISOString()).order("starts_at").range(offset, offset + PAGE - 1);
       if (roomId != null) q = q.eq("room_id", roomId);
       const r = await q;
@@ -420,21 +442,25 @@ const CONFIG = {
     const horizon = horizonDays > 0 ? new Date(now.getTime() + horizonDays * 864e5) : null;
     const ws = startOfWeek(state.anchor), we = addDays(ws, nDays - 1);
     $("weekLabel").textContent = `${fmtShort.format(ws)} – ${fmtShort.format(we)} ${we.getFullYear()} · week ${isoWeek(ws)}`;
-    $("hint").textContent = "Click a free slot to book it.";
+    $("hint").textContent = "Click a free slot to book it, or a day header to book the whole day.";
 
     g.className = "grid"; g.style.setProperty("--days", nDays);
     const corner = document.createElement("div"); corner.className = "corner"; g.appendChild(corner);
+    const mine = roomBookings();
     const days = [];
     for (let i = 0; i < nDays; i++) {
       const d = addDays(ws, i); days.push(d);
       const h = document.createElement("div"); h.className = "dayhead" + (sameDay(d, now) ? " today" : "");
-      h.innerHTML = `<div class="dow">${fmtDow.format(d)}</div><div class="dom">${d.getDate()}</div>`; g.appendChild(h);
+      h.innerHTML = `<div class="dow">${fmtDow.format(d)}</div><div class="dom">${d.getDate()}</div>`;
+      const dayEnd = atMinutes(d, closeMin);
+      const dayFree = !mine.some(b => sameDay(b.start, d));
+      if (dayFree && dayEnd > now && !(horizon && atMinutes(d, openMin) > horizon)) { h.classList.add("free"); h.title = "Book the whole day"; h.addEventListener("click", () => openBooking(d, openMin, true)); }
+      g.appendChild(h);
     }
     const slotH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--slot-h")) || 26;
     const tc = document.createElement("div"); tc.className = "timecol"; tc.style.height = (nSlots * slotH) + "px";
     for (let s = 0; s <= nSlots; s += 2) { const l = document.createElement("div"); l.className = "timelabel"; l.style.top = (s * slotH) + "px"; l.textContent = hhmm(openMin + s * SLOT_MIN); tc.appendChild(l); }
     g.appendChild(tc);
-    const mine = roomBookings();
     days.forEach((d) => {
       const col = document.createElement("div"); col.className = "daycol" + (sameDay(d, now) ? " today" : "");
       for (let s = 0; s < nSlots; s++) {
@@ -540,6 +566,7 @@ const CONFIG = {
 
   // ---------- new / edit booking ----------
   let draft = null;   // { day, editId, spanStart, spanEnd }
+  let pendingFree = null;   // series rows still free after a conflict check
   async function bookingsOn(day, excludeId) {
     let list;
     if (state.range && day >= state.range.from && day < state.range.to) list = state.bookings;
@@ -557,6 +584,7 @@ const CONFIG = {
     // a booking that already started keeps its start time
     if (draft.editId && draft.origStart && sameDay(draft.origStart, day) && minOf(draft.origStart) < spanStart) spanStart = minOf(draft.origStart);
     draft.spanStart = spanStart; draft.spanEnd = spanEnd;
+    if ($("allDayChk").checked) $("allDayChk").checked = false;
     const ss = $("startSel"); ss.innerHTML = "";
     for (let m = spanStart; m < spanEnd; m += SLOT_MIN) ss.add(new Option(hhmm(m), m));
     ss.value = (preferredStart >= spanStart && preferredStart < spanEnd) ? preferredStart : spanStart;
@@ -570,15 +598,49 @@ const CONFIG = {
     es.value = (preferred && preferred > start && preferred <= draft.spanEnd) ? preferred : start + SLOT_MIN;
   }
   function roomName() { const r = state.rooms.find(x => x.id === state.roomId); return r ? r.name : ""; }
-  function openBooking(day, clickedMin) {
+  function resetExtras(editing) {
+    $("allDayChk").checked = false; $("allDayLbl").textContent = `Whole day (${hhmm(state.settings.openMin)}–${hhmm(state.settings.closeMin)})`;
+    $("repeatRow").hidden = !!editing; $("repeatSel").value = "none"; $("untilField").hidden = true; $("untilInp").value = "";
+    $("repeatInfo").hidden = true; $("bookSkip").hidden = true; pendingFree = null;
+    const h = state.settings.horizonDays; $("untilInp").max = h > 0 ? ymd(addDays(new Date(), h)) : "";
+  }
+  function openBooking(day, clickedMin, allDay) {
     draft = { day, editId: null };
     $("bookTitle").textContent = "New booking"; $("bookSave").textContent = "Book";
     $("bookSub").textContent = roomName();
     $("dateInp").value = ymd(day); $("dateInp").min = ymd(new Date());
     $("titleInp").value = ""; $("notesInp").value = "";
     try { $("nameInp").value = localStorage.getItem("labbooking.name") || ""; } catch (_) {}
+    resetExtras(false);
     $("bookSave").disabled = false; $("bookModal").hidden = false;
-    rebuildTimes(clickedMin, clickedMin + SLOT_MIN).then(() => $("titleInp").focus()).catch(e => toast(friendlyError(e), true));
+    rebuildTimes(clickedMin, clickedMin + SLOT_MIN).then(() => { if (allDay) applyAllDay(); $("titleInp").focus(); }).catch(e => toast(friendlyError(e), true));
+  }
+  // whole day = from opening (or now, if today) to closing; only possible when nothing else is booked that day
+  function applyAllDay() {
+    const { openMin, closeMin } = state.settings;
+    if (draft.spanStart > Math.max(openMin, sameDay(draft.day, new Date()) ? Math.floor(minOf(new Date()) / SLOT_MIN) * SLOT_MIN : openMin) || draft.spanEnd < closeMin) {
+      $("allDayChk").checked = false;
+      $("bookError").textContent = "The whole day is not free: there is already a booking on this day."; $("bookError").hidden = false; return;
+    }
+    $("startSel").value = draft.spanStart; fillEnd(closeMin); $("endSel").value = closeMin; $("allDayChk").checked = true; $("bookError").hidden = true;
+  }
+  $("allDayChk").addEventListener("change", () => { if ($("allDayChk").checked) applyAllDay(); });
+  $("endSel").addEventListener("change", () => { if (Number($("endSel").value) !== state.settings.closeMin) $("allDayChk").checked = false; });
+  $("repeatSel").addEventListener("change", () => {
+    const on = $("repeatSel").value !== "none";
+    $("untilField").hidden = !on; $("repeatInfo").hidden = true; $("bookSkip").hidden = true; pendingFree = null;
+    if (on && !$("untilInp").value) { const d = addDays(draft.day, $("repeatSel").value === "daily" ? 4 : 7 * 12); const max = $("untilInp").max ? fromYmd($("untilInp").max) : d; $("untilInp").value = ymd(d < max ? d : max); }
+  });
+  $("untilInp").addEventListener("change", () => { $("repeatInfo").hidden = true; $("bookSkip").hidden = true; pendingFree = null; });
+  // dates of a series: first occurrence = the chosen day
+  function seriesDays() {
+    const mode = $("repeatSel").value; if (mode === "none" || !$("untilInp").value) return [draft.day];
+    const until = fromYmd($("untilInp").value), out = [];
+    for (let d = new Date(draft.day); d <= until && out.length < 120; d = addDays(d, mode === "daily" ? 1 : mode === "weekly" ? 7 : 14)) {
+      if (state.settings.weekdaysOnly && isWeekend(d)) continue;
+      out.push(new Date(d));
+    }
+    return out;
   }
   function openEdit(b) {
     draft = { day: startOfDay(b.start), editId: b.id, origStart: b.start };
@@ -586,6 +648,7 @@ const CONFIG = {
     $("bookSub").textContent = roomName();
     $("dateInp").value = ymd(b.start); $("dateInp").min = ymd(new Date());
     $("titleInp").value = b.title; $("nameInp").value = b.booked_by; $("notesInp").value = b.notes || "";
+    resetExtras(true);
     $("bookSave").disabled = false; $("detailModal").hidden = true; $("bookModal").hidden = false;
     rebuildTimes(minOf(b.start), minOf(b.end)).catch(e => toast(friendlyError(e), true));
   }
@@ -596,7 +659,7 @@ const CONFIG = {
     draft.day = day;
     rebuildTimes(Number($("startSel").value) || state.settings.openMin, Number($("endSel").value) || 0).catch(e => toast(friendlyError(e), true));
   });
-  $("startSel").addEventListener("change", () => fillEnd(Number($("endSel").value)));
+  $("startSel").addEventListener("change", () => { fillEnd(Number($("endSel").value)); $("allDayChk").checked = false; });
   $("bookCancel").addEventListener("click", () => $("bookModal").hidden = true);
   $("bookModal").addEventListener("click", (e) => { if (e.target === $("bookModal")) $("bookModal").hidden = true; });
   $("bookForm").addEventListener("submit", async (e) => {
@@ -604,17 +667,46 @@ const CONFIG = {
     const title = $("titleInp").value.trim(), name = $("nameInp").value.trim(), notes = $("notesInp").value.trim();
     if (!title || !name) { $("bookError").textContent = "Please enter the experiment and your name."; $("bookError").hidden = false; return; }
     if (!$("startSel").value || !$("endSel").value) { $("bookError").textContent = "Please choose a free time."; $("bookError").hidden = false; return; }
-    const starts = atMinutes(draft.day, Number($("startSel").value)), ends = atMinutes(draft.day, Number($("endSel").value));
-    const row = { room_id: state.roomId, starts_at: starts.toISOString(), ends_at: ends.toISOString(), title, booked_by: name, notes: notes || null };
+    const sMin = Number($("startSel").value), eMin = Number($("endSel").value);
+    const days = draft.editId ? [draft.day] : seriesDays();
+    if (!days.length) { $("bookError").textContent = "The series has no dates: check the end date."; $("bookError").hidden = false; return; }
+    const rows = days.map(d => ({ room_id: state.roomId, starts_at: atMinutes(d, sMin).toISOString(), ends_at: atMinutes(d, eMin).toISOString(), title, booked_by: name, notes: notes || null }));
     $("bookSave").disabled = true; $("bookError").hidden = true;
-    const { error } = draft.editId ? await client.from("bookings").update(row).eq("id", draft.editId) : await client.from("bookings").insert(row);
+    let error;
+    if (draft.editId) {
+      ({ error } = await client.from("bookings").update(rows[0]).eq("id", draft.editId));
+    } else if (rows.length === 1) {
+      ({ error } = await client.from("bookings").insert(rows[0]));
+    } else {
+      // series: check every date against existing bookings first
+      let list = pendingFree;
+      if (!list) {
+        const existing = await fetchBookings(startOfDay(days[0]), addDays(startOfDay(days[days.length - 1]), 1), state.roomId).catch(e => { error = e; return []; });
+        if (error) { $("bookSave").disabled = false; $("bookError").textContent = friendlyError(error); $("bookError").hidden = false; return; }
+        const busy = rows.filter(r => existing.some(b => b.starts_at < r.ends_at && r.starts_at < b.ends_at));
+        if (busy.length) {
+          $("bookSave").disabled = false;
+          pendingFree = rows.filter(r => !busy.includes(r));
+          const when = busy.slice(0, 6).map(r => fmtShort.format(new Date(r.starts_at))).join(", ") + (busy.length > 6 ? ", …" : "");
+          $("bookError").textContent = `${busy.length} of ${rows.length} dates are already taken (${when}).`; $("bookError").hidden = false;
+          $("bookSkip").hidden = pendingFree.length === 0; $("bookSkip").textContent = `Book only the ${pendingFree.length} free date${pendingFree.length > 1 ? "s" : ""}`;
+          return;
+        }
+        list = rows;
+      }
+      const sid = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + "-" + Math.random().toString(16).slice(2));
+      ({ error } = await client.from("bookings").insert(list.map(r => ({ ...r, series_id: sid }))));
+      rows.length = list.length;
+    }
     $("bookSave").disabled = false;
     if (error) { $("bookError").textContent = friendlyError(error); $("bookError").hidden = false; if (error.code === "23P01") reload().catch(() => {}); return; }
     try { localStorage.setItem("labbooking.name", name); } catch (_) {}
     $("bookModal").hidden = true;
-    toast(draft.editId ? `Booking updated: ${fmtShort.format(starts)}, ${timeOf(starts)}–${timeOf(ends)}.` : `Booked ${fmtShort.format(starts)}, ${timeOf(starts)}–${timeOf(ends)}.`);
+    const starts = atMinutes(draft.day, sMin), ends = atMinutes(draft.day, eMin);
+    toast(draft.editId ? `Booking updated: ${fmtShort.format(starts)}, ${timeOf(starts)}–${timeOf(ends)}.` : rows.length > 1 ? `Booked ${rows.length} dates, ${timeOf(starts)}–${timeOf(ends)}.` : `Booked ${fmtShort.format(starts)}, ${timeOf(starts)}–${timeOf(ends)}.`);
     await reload().catch(err => toast(friendlyError(err), true));
   });
+  $("bookSkip").addEventListener("click", () => $("bookForm").requestSubmit());
 
   // ---------- details / cancel ----------
   let current = null;
@@ -626,8 +718,21 @@ const CONFIG = {
     $("dBy").textContent = b.booked_by; $("dNotes").textContent = b.notes || "—";
     const past = b.end <= new Date();
     $("dEdit").hidden = past; $("dCancel").hidden = past; $("dConfirm").hidden = true; $("dError").hidden = true; $("dCancel").disabled = false;
+    const inSeries = !!b.series_id;
+    $("dSeriesDt").hidden = !inSeries; $("dSeries").hidden = !inSeries; $("dSeries").textContent = inSeries ? "Part of a series (edits apply to this date only)" : "";
+    $("dSeriesCancel").hidden = !inSeries || past; $("dSeriesConfirm").hidden = true;
     $("detailModal").hidden = false;
   }
+  $("dSeriesCancel").addEventListener("click", () => { $("dSeriesCancel").hidden = true; $("dSeriesConfirm").hidden = false; });
+  $("dSeriesConfirm").addEventListener("click", async () => {
+    $("dSeriesConfirm").disabled = true;
+    // future occurrences only (past ones are protected by the database anyway)
+    const { error } = await client.from("bookings").delete().eq("series_id", current.series_id).gte("ends_at", new Date().toISOString());
+    $("dSeriesConfirm").disabled = false;
+    if (error) { $("dError").textContent = friendlyError(error); $("dError").hidden = false; return; }
+    $("detailModal").hidden = true; toast("Series cancelled (all future dates).");
+    await reload().catch(err => toast(friendlyError(err), true));
+  });
   $("dClose").addEventListener("click", () => $("detailModal").hidden = true);
   $("detailModal").addEventListener("click", (e) => { if (e.target === $("detailModal")) $("detailModal").hidden = true; });
   $("dEdit").addEventListener("click", () => openEdit(current));
