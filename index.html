@@ -158,6 +158,14 @@ const CONFIG = {
   .legend { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); padding: 0 14px 14px; }
   .legend i { display: inline-block; width: 14px; height: 14px; border-radius: 3px; background: #eef0f3; }
 
+  /* quick booking from the QR code at the door */
+  .durs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
+  .durs button { border: 1px solid var(--line-strong); border-radius: 10px; padding: 10px 6px; background: var(--panel); text-align: center; font-weight: 600; }
+  .durs button small { display: block; font-weight: 400; font-size: 12px; color: var(--muted); }
+  .durs button.sel { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .durs button.sel small { color: #e6eefc; }
+  .busy { background: var(--danger-soft); border-radius: 8px; padding: 10px 12px; margin: 0 0 12px; }
+
   .setup { max-width: 640px; margin: 8vh auto; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 24px; }
   .setup code { background: #f0f2f5; padding: 1px 5px; border-radius: 4px; }
   @media (max-width: 600px) { :root { --slot-h: 24px; --time-col: 48px; } .weeklabel { min-width: 0; } }
@@ -184,7 +192,7 @@ const CONFIG = {
 
   <section id="loginView" class="login" hidden>
     <h2>Sign in</h2>
-    <p>Use the personal account you received from the administrator.</p>
+    <p id="loginHint">Use the personal account you received from the administrator.</p>
     <form id="loginForm">
       <div class="field">
         <label for="email">Email</label>
@@ -293,6 +301,29 @@ const CONFIG = {
   </form>
 </div>
 
+<!-- quick booking from the QR code at the door (?room=ID) -->
+<div id="quickModal" class="backdrop" hidden>
+  <form class="modal" id="qForm">
+    <h3>Book this room now</h3>
+    <p class="sub" id="qSub"></p>
+    <div id="qBusy" hidden>
+      <p class="busy">In use right now: <span id="qBusyText"></span></p>
+      <button type="button" class="btn" id="qNext" hidden></button>
+    </div>
+    <div id="qFields">
+      <p class="note" id="qFrom" style="margin:0 0 8px"></p>
+      <div class="durs" id="qDurs"></div>
+      <div class="field"><label for="qTitle">Experiment / project *</label><input id="qTitle" required maxlength="120" placeholder="e.g. EEG pilot session"></div>
+      <div class="field"><label for="qName">Your name *</label><input id="qName" required maxlength="60"></div>
+    </div>
+    <p class="error" id="qError" hidden></p>
+    <div class="actions">
+      <button type="button" class="btn" id="qCancel">Open calendar</button>
+      <button type="submit" class="btn primary" id="qBook">Book now</button>
+    </div>
+  </form>
+</div>
+
 <div id="toast" class="toast" hidden></div>
 
 <script>
@@ -319,6 +350,17 @@ const CONFIG = {
     user: null,              // the signed-in account
   };
   try { const v = localStorage.getItem("labbooking.view"); if (["week", "month", "year"].includes(v)) state.view = v; } catch (_) {}
+  // opened from the QR code at a door: ".../?room=3" → book that room right now
+  // the value is the room id (…?room=3) or words of its name (…?room=eeg, …?room=behavioral+vonroll)
+  const quickRoomParam = (() => { try { return (new URLSearchParams(location.search).get("room") || "").trim() || null; } catch (_) { return null; } })();
+  function quickRoom() {
+    if (!quickRoomParam) return null;
+    if (/^\d+$/.test(quickRoomParam)) return state.rooms.find(r => r.id === Number(quickRoomParam)) || null;
+    const words = quickRoomParam.toLowerCase().split(/[\s+,_-]+/).filter(Boolean);
+    const hits = state.rooms.filter(r => { const n = r.name.toLowerCase(); return words.every(w => n.includes(w)); });
+    return hits.length === 1 ? hits[0] : null;
+  }
+  if (quickRoomParam) $("loginHint").textContent = "Sign in once with your personal account; you will then go straight to booking the room on the QR code.";
 
   // ---------- date helpers (all in the browser's local time) ----------
   function startOfDay(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
@@ -401,7 +443,7 @@ const CONFIG = {
   async function enterApp() {
     show("appView");
     $("whoami").textContent = state.user ? (accountName(state.user) + " · " + state.user.email) : "";
-    try { await loadStatic(); state.anchor = todayAnchor(); await reload(); subscribe(); }
+    try { await loadStatic(); state.anchor = todayAnchor(); await reload(); subscribe(); if (quickRoomParam) await openQuick(); }
     catch (err) { toast(friendlyError(err), true); }
     clearInterval(state.nowTimer); state.nowTimer = setInterval(render, 60 * 1000);
   }
@@ -759,6 +801,86 @@ const CONFIG = {
   });
   $("bookSkip").addEventListener("click", () => $("bookForm").requestSubmit());
 
+  // ---------- quick booking from the QR code at the door ----------
+  const QUICK_DURS = [60, 120, 240, 480];   // minutes offered after scanning
+  let quick = null;   // { day, startMin, endMax, dur }
+  function clearQuickParam() { try { history.replaceState(null, "", location.pathname); } catch (_) {} }
+  function durLabel(m) { return m % 60 === 0 ? `${m / 60} h` : `${m} min`; }
+  function quickState(mode, msg) {   // "form" | "busy" | "off"
+    $("qBusy").hidden = mode !== "busy"; $("qFields").hidden = mode !== "form"; $("qBook").hidden = mode !== "form";
+    $("qError").hidden = !msg; $("qError").textContent = msg || "";
+  }
+  async function openQuick() {
+    const room = quickRoom();
+    if (!room) { clearQuickParam(); toast("The QR code points to a room that does not exist.", true); return; }
+    state.roomId = room.id; renderTabs(); render();
+    const { openMin, closeMin, weekdaysOnly } = state.settings;
+    const now = new Date();
+    $("qSub").textContent = `${room.name} · ${fmtDay.format(now)}`;
+    $("qTitle").value = "";
+    let remembered = ""; try { remembered = localStorage.getItem("labbooking.name") || ""; } catch (_) {}
+    $("qName").value = remembered || accountName(state.user);
+    $("quickModal").hidden = false;
+    if (weekdaysOnly && isWeekend(now)) { quickState("off", "Bookings are only possible Monday to Friday. Use the calendar to book another day."); return; }
+    const startMin = Math.max(openMin, Math.floor(minOf(now) / SLOT_MIN) * SLOT_MIN);
+    if (startMin >= closeMin) { quickState("off", `The room is closed for today (bookings until ${hhmm(closeMin)}). Use the calendar to book another day.`); return; }
+    let others;
+    try { others = (await bookingsOn(startOfDay(now), null)).map(b => ({ s: minOf(b.start), e: minOf(b.end), b })).sort((a, b) => a.s - b.s); }
+    catch (e) { quickState("off", friendlyError(e)); return; }
+    quickSetStart(startMin, others);
+  }
+  function quickSetStart(startMin, others) {
+    const { closeMin } = state.settings;
+    const current = others.find(o => o.s <= startMin && o.e > startMin);
+    if (current) {
+      // room in use: say by whom and offer the next free time today
+      let s = current.e, o; while ((o = others.find(x => x.s <= s && x.e > s))) s = o.e;
+      $("qBusyText").textContent = `${current.b.title} · ${current.b.booked_by} · until ${hhmm(current.e)}`;
+      quickState("busy");
+      $("qNext").hidden = s >= closeMin; $("qNext").textContent = `Book from ${hhmm(s)} instead`; $("qNext").onclick = () => quickSetStart(s, others);
+      return;
+    }
+    const next = others.find(o => o.s >= startMin);
+    const endMax = Math.min(closeMin, next ? next.s : closeMin);
+    quick = { day: startOfDay(new Date()), startMin, endMax, dur: null };
+    let durs = QUICK_DURS.filter(d => startMin + d <= endMax);
+    if (!durs.length && endMax - startMin >= SLOT_MIN) durs = [endMax - startMin];   // less than 1 h free: offer what is left
+    $("qFrom").textContent = `From ${hhmm(startMin)}` + (next ? ` (next booking at ${hhmm(next.s)})` : "") + " — how long?";
+    const wrap = $("qDurs"); wrap.innerHTML = "";
+    for (const d of durs) {
+      const b = document.createElement("button"); b.type = "button"; b.innerHTML = "<span></span><small></small>";
+      b.firstChild.textContent = durLabel(d); b.lastChild.textContent = `until ${hhmm(startMin + d)}`;
+      b.addEventListener("click", () => { quick.dur = d; for (const x of wrap.children) x.classList.toggle("sel", x === b); });
+      wrap.appendChild(b);
+    }
+    if (durs.length) { quick.dur = durs[0]; wrap.firstChild.classList.add("sel"); quickState("form"); $("qTitle").focus(); }
+    else quickState("off", "No free time left today in this room. Use the calendar to book another day.");
+  }
+  $("qForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const title = $("qTitle").value.trim(), name = $("qName").value.trim();
+    if (!title || !name) { $("qError").textContent = "Please enter the experiment and your name."; $("qError").hidden = false; return; }
+    if (!quick || !quick.dur) { $("qError").textContent = "Please choose a duration."; $("qError").hidden = false; return; }
+    $("qBook").disabled = true; $("qError").hidden = true;
+    const starts = atMinutes(quick.day, quick.startMin), ends = atMinutes(quick.day, quick.startMin + quick.dur);
+    const { error } = await client.from("bookings").insert({ room_id: state.roomId, starts_at: starts.toISOString(), ends_at: ends.toISOString(), title, booked_by: name, notes: null });
+    $("qBook").disabled = false;
+    if (error) {
+      $("qError").textContent = friendlyError(error); $("qError").hidden = false;
+      if (error.code === "23P01") {   // taken meanwhile: recompute what is free, keep the explanation visible
+        await reload().catch(() => {}); await openQuick().catch(() => {});
+        $("qError").textContent = "This time has just been taken by someone else — the options have been updated."; $("qError").hidden = false;
+      }
+      return;
+    }
+    try { localStorage.setItem("labbooking.name", name); } catch (_) {}
+    $("quickModal").hidden = true; clearQuickParam();
+    toast(`Booked ${roomName()}, ${timeOf(starts)}–${timeOf(ends)}.`);
+    await reload().catch(err => toast(friendlyError(err), true));
+  });
+  $("qCancel").addEventListener("click", () => { $("quickModal").hidden = true; clearQuickParam(); });
+  $("quickModal").addEventListener("click", (e) => { if (e.target === $("quickModal")) { $("quickModal").hidden = true; clearQuickParam(); } });
+
   // ---------- details / cancel ----------
   let current = null;
   function openDetails(b) {
@@ -797,7 +919,7 @@ const CONFIG = {
     $("detailModal").hidden = true; toast("Booking cancelled.");
     await reload().catch(err => toast(friendlyError(err), true));
   });
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape") { $("bookModal").hidden = true; $("detailModal").hidden = true; $("pwModal").hidden = true; } });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") { $("bookModal").hidden = true; $("detailModal").hidden = true; $("pwModal").hidden = true; if (!$("quickModal").hidden) { $("quickModal").hidden = true; clearQuickParam(); } } });
 
   init();
 })();
