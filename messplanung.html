@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Schlafinseln Messplanung</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script>
+/* Gleiche Supabase-Verbindung und gleiche Konten wie das SNS lab room booking system (index.html). */
+const CONFIG = {
+  supabaseUrl:     "https://anrqyvwamarqpgcxqmwp.supabase.co",
+  supabaseAnonKey: "sb_publishable_8yd8of9evF_aOoz_d4HW_w_kLLKDh-9",
+};
+</script>
+<style>[hidden]{display:none!important}body{margin:0}</style>
+<style>
+/* Layout: a planning desk — header with counters, three tabs (availability grid by week, slot list for ORSEE, booking table). */
+:root{
+  --bg:#F6F5FB; --surface:#FFFFFF; --sunk:#EEECF6; --ink:#1E1B33; --muted:#625E80; --line:#DCD9EA;
+  --accent:#2E2A66; --accent-ink:#FFFFFF; --coral:#D9673F; --coral-soft:#FBE7DF;
+  --ok:#2F7A55; --ok-soft:#DFF1E7; --warn:#A8620B; --warn-soft:#FCEFD9; --bad:#B23A3A; --bad-soft:#F8E1E1;
+  --p1:#3B3592; --p2:#D9673F; --p3:#14837A; --p4:#A8780B; --p5:#8E3C88; --p6:#3D6FB5;
+  --f-display:"Space Grotesk",ui-sans-serif,system-ui,sans-serif;
+  --f-body:"Inter",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+  --r:10px;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#14131F; --surface:#1D1B2C; --sunk:#262439; --ink:#ECEAF6; --muted:#A6A2C2; --line:#36334E;
+  --accent:#AFA9F0; --accent-ink:#14131F; --coral:#F08A64; --coral-soft:#3A2622;
+  --ok:#6FCB9C; --ok-soft:#1D3328; --warn:#E8AE5A; --warn-soft:#38291A; --bad:#EE8B8B; --bad-soft:#3A2024;
+  --p1:#A39DF0; --p2:#F08A64; --p3:#56C7BC; --p4:#E2B64E; --p5:#D58CCF; --p6:#86AEE8; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#14131F; --surface:#1D1B2C; --sunk:#262439; --ink:#ECEAF6; --muted:#A6A2C2; --line:#36334E;
+  --accent:#AFA9F0; --accent-ink:#14131F; --coral:#F08A64; --coral-soft:#3A2622;
+  --ok:#6FCB9C; --ok-soft:#1D3328; --warn:#E8AE5A; --warn-soft:#38291A; --bad:#EE8B8B; --bad-soft:#3A2024;
+  --p1:#A39DF0; --p2:#F08A64; --p3:#56C7BC; --p4:#E2B64E; --p5:#D58CCF; --p6:#86AEE8; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:14px;line-height:1.45}
+.wrap{max-width:1180px;margin:0 auto;padding-block:20px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:18px}
+h1,h2,h3{font-family:var(--f-display);text-wrap:balance;margin:0}
+h1{font-size:26px;font-weight:700;letter-spacing:-.01em}
+h2{font-size:18px;font-weight:600}
+.eyebrow{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--coral)}
+.muted{color:var(--muted)}
+header.top{display:flex;flex-wrap:wrap;gap:16px;justify-content:space-between;align-items:flex-end}
+.stats{display:flex;flex-wrap:wrap;gap:8px}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:8px 12px;min-width:104px}
+.stat b{display:block;font-family:var(--f-display);font-size:20px;font-variant-numeric:tabular-nums}
+.stat span{font-size:12px;color:var(--muted)}
+.bar{height:4px;border-radius:2px;background:var(--sunk);margin-top:6px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--coral)}
+nav.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);overflow-x:auto}
+nav.tabs a{padding:10px 14px;color:var(--muted);text-decoration:none;font-weight:600;border-bottom:2px solid transparent;white-space:nowrap}
+nav.tabs a[aria-current="page"]{color:var(--ink);border-color:var(--accent)}
+nav.tabs a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.panel{display:flex;flex-direction:column;gap:14px}
+.toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:10px 12px}
+.toolbar label{font-size:12px;color:var(--muted);display:flex;gap:6px;align-items:center}
+button,select,input{font:inherit;color:inherit}
+button{cursor:pointer;border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:6px 10px}
+button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600}
+button.ghost{background:transparent}
+button:disabled{opacity:.45;cursor:not-allowed}
+input,select{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:5px 8px;min-width:0}
+.pill{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:4px 10px;border:1px solid var(--line);background:var(--surface);font-weight:500}
+.pill .dot{width:9px;height:9px;border-radius:50%}
+.pill[aria-pressed="true"]{border-color:var(--ink);box-shadow:inset 0 0 0 1px var(--ink)}
+.hint{font-size:12px;color:var(--muted)}
+.legend{display:flex;flex-wrap:wrap;gap:12px;font-size:12px;color:var(--muted)}
+.legend span{display:inline-flex;gap:6px;align-items:center}
+.sw{width:12px;height:12px;border-radius:3px;border:1px solid var(--line)}
+.week{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px}
+.week h3{font-size:14px;margin-bottom:10px;display:flex;gap:10px;align-items:baseline}
+.days{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}
+@media (max-width:760px){.days{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}}
+.day{display:flex;flex-direction:column;gap:6px;min-width:0}
+.day .dname{font-size:12px;font-weight:600;color:var(--muted)}
+.day.out{opacity:.4}
+.slotbox{border:1px solid var(--line);border-radius:8px;padding:6px 7px;background:var(--sunk);display:flex;flex-direction:column;gap:5px;min-height:58px;text-align:left;width:100%}
+.slotbox.cap1{background:var(--ok-soft);border-color:color-mix(in srgb,var(--ok) 35%,transparent)}
+.slotbox.cap2{background:var(--ok-soft);border-color:var(--ok)}
+.slotbox:disabled{opacity:1;cursor:default}
+.slotbox.mine{box-shadow:inset 0 0 0 2px var(--accent)}
+.slotbox .row{display:flex;justify-content:space-between;align-items:center;gap:4px;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+.chips{display:flex;flex-wrap:wrap;gap:3px}
+.chip{font-size:11px;font-weight:600;border-radius:5px;padding:1px 6px;color:#fff;background:var(--p1)}
+.capdots{display:inline-flex;gap:2px}
+.capdots i{width:7px;height:7px;border-radius:50%;background:var(--line)}
+.capdots i.on{background:var(--ok)}
+.capdots i.used{background:var(--coral)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r)}
+.tablewrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}
+th{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;background:var(--sunk);position:sticky;top:0}
+td.num,td.time{font-variant-numeric:tabular-nums;white-space:nowrap}
+tr.wkhead td{background:var(--sunk);font-weight:600;font-size:12px;color:var(--muted)}
+.status{font-size:12px;font-weight:600;border-radius:999px;padding:2px 8px;white-space:nowrap}
+.s-geplant{background:var(--sunk);color:var(--muted)}
+.s-orsee{background:var(--warn-soft);color:var(--warn)}
+.s-gebucht{background:var(--ok-soft);color:var(--ok)}
+.s-durchgefuehrt{background:color-mix(in srgb,var(--accent) 18%,transparent);color:var(--accent)}
+.s-abgesagt{background:var(--bad-soft);color:var(--bad)}
+.warn{font-size:11px;color:var(--warn);display:block;margin-top:2px}
+.empty{padding:28px;text-align:center;color:var(--muted)}
+.notice{border-radius:var(--r);padding:10px 12px;font-size:13px;background:var(--warn-soft);color:var(--warn)}
+.notice.bad{background:var(--bad-soft);color:var(--bad)}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:8px 14px;border-radius:8px;font-size:13px;z-index:20}
+.grow{flex:1}
+td input,td select{width:100%;min-width:110px}
+td.note input{min-width:140px}
+.confirm{display:inline-flex;gap:4px;align-items:center}
+@media (prefers-reduced-motion:no-preference){.slotbox{transition:box-shadow .15s}}
+</style>
+<style>
+.login{max-width:380px;margin:40px auto;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:22px;display:flex;flex-direction:column;gap:12px}
+.login label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
+.login input{padding:8px 10px}
+.who{display:flex;gap:8px;align-items:center;font-size:12px;color:var(--muted);flex-wrap:wrap}
+.err{color:var(--bad);font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <div class="eyebrow">Sleep Intrusions · Ruhe-EEG</div>
+      <h1>Schlafinseln Messplanung</h1>
+      <div class="muted">Slot 1: Vp 08:30–09:45 (Team 08:15–10:00) · Slot 2: Vp 10:15–11:30 (Team 10:00–12:00) · 2 Versuchsleiter:innen pro Session</div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">
+      <div class="who" id="who" hidden><span id="whoami"></span><button class="ghost" id="logoutBtn">Abmelden</button></div>
+      <div class="stats" id="stats"></div>
+    </div>
+  </header>
+
+  <div id="banner" hidden></div>
+
+  <section id="loginView" hidden>
+    <form class="login" id="loginForm">
+      <h2>Anmelden</h2>
+      <p class="hint" style="margin:0">Mit dem persönlichen Konto des SNS lab room booking system.</p>
+      <label>E-Mail <input id="email" type="email" autocomplete="username" required></label>
+      <label>Passwort <input id="password" type="password" autocomplete="current-password" required></label>
+      <button class="primary" type="submit" id="loginBtn">Anmelden</button>
+      <p class="err" id="loginError" hidden></p>
+    </form>
+  </section>
+
+  <div id="appView" hidden style="display:flex;flex-direction:column;gap:18px">
+    <nav class="tabs" aria-label="Bereiche">
+      <a href="#verfuegbarkeit" data-tab="verfuegbarkeit">1 · Verfügbarkeiten</a>
+      <a href="#slots" data-tab="slots">2 · Slots für ORSEE</a>
+      <a href="#buchungen" data-tab="buchungen">3 · Buchungen</a>
+    </nav>
+    <section class="panel" id="tab-verfuegbarkeit"></section>
+    <section class="panel" id="tab-slots" hidden></section>
+    <section class="panel" id="tab-buchungen" hidden></section>
+  </div>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+(function(){
+const SLOTS={1:{vp:"08:30–09:45",team:"08:15–10:00"},2:{vp:"10:15–11:30",team:"10:00–12:00"}};
+const STATUS=[["geplant","Geplant"],["orsee","In ORSEE"],["gebucht","Gebucht"],["durchgefuehrt","Durchgeführt"],["abgesagt","Abgesagt"]];
+const WD=["So","Mo","Di","Mi","Do","Fr","Sa"];
+const PCOL=["var(--p1)","var(--p2)","var(--p3)","var(--p4)","var(--p5)","var(--p6)"];
+const S={ready:false,people:[],avail:new Set(),sessions:[],config:{start:"2026-11-16",end:"2026-12-18",labs:2,target:50},selected:null,deleting:null,channel:null};
+const client=supabase.createClient(CONFIG.supabaseUrl,CONFIG.supabaseAnonKey);
+
+const $=s=>document.querySelector(s);
+const esc=t=>String(t??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+function toast(m){const t=$("#toast");t.textContent=m;t.hidden=false;clearTimeout(toast.t);toast.t=setTimeout(()=>t.hidden=true,3000)}
+function banner(m,bad){const b=$("#banner");if(!m){b.hidden=true;return}b.className="notice"+(bad?" bad":"");b.textContent=m;b.hidden=false}
+
+const pd=s=>{const[y,m,d]=s.split("-").map(Number);return new Date(Date.UTC(y,m-1,d))};
+const fd=d=>d.toISOString().slice(0,10);
+const add=(d,n)=>new Date(d.getTime()+n*864e5);
+const dShort=s=>{const d=pd(s);return WD[d.getUTCDay()]+" "+String(d.getUTCDate()).padStart(2,"0")+"."+String(d.getUTCMonth()+1).padStart(2,"0")+"."};
+const dLong=s=>{const d=pd(s);return WD[d.getUTCDay()]+", "+String(d.getUTCDate()).padStart(2,"0")+"."+String(d.getUTCMonth()+1).padStart(2,"0")+"."+d.getUTCFullYear()};
+function isoWeek(d){const t=new Date(d);const day=(t.getUTCDay()+6)%7;t.setUTCDate(t.getUTCDate()-day+3);const f=new Date(Date.UTC(t.getUTCFullYear(),0,4));return 1+Math.round(((t-f)/864e5-3+((f.getUTCDay()+6)%7))/7)}
+function weekdays(){const out=[];let s=pd(S.config.start),e=pd(S.config.end);if(isNaN(s)||isNaN(e)||e<s)return out;
+  s=add(s,-((s.getUTCDay()+6)%7));for(let d=s;d<=e;d=add(d,1)){const w=d.getUTCDay();if(w>=1&&w<=5)out.push(fd(d))}return out}
+const inRange=ds=>ds>=S.config.start&&ds<=S.config.end;
+
+const person=id=>S.people.find(p=>p.id===id);
+const pcolor=id=>{const i=S.people.findIndex(p=>p.id===id);return PCOL[(i<0?0:i)%PCOL.length]};
+const pname=id=>person(id)?.name||id||"";
+const availFor=(date,slot)=>S.people.filter(p=>S.avail.has(date+"_"+slot+"_"+p.id)).map(p=>p.id);
+const capacity=n=>Math.min(S.config.labs||2,Math.floor(n/2));
+const sessFor=(date,slot)=>S.sessions.filter(s=>s.date===date&&s.slot===slot);
+const activeSess=(date,slot)=>sessFor(date,slot).filter(s=>s.status!=="abgesagt");
+
+function renderStats(){
+  if(!S.ready){$("#stats").innerHTML="";return}
+  const active=S.sessions.filter(s=>s.status!=="abgesagt");
+  const booked=S.sessions.filter(s=>s.status==="gebucht"||s.status==="durchgefuehrt").length;
+  const done=S.sessions.filter(s=>s.status==="durchgefuehrt").length;
+  let possible=0;for(const d of weekdays())if(inRange(d))for(const sl of [1,2])possible+=capacity(availFor(d,sl).length);
+  const tgt=S.config.target||50;
+  $("#stats").innerHTML=`
+   <div class="stat"><b>${possible}</b><span>mögliche Sessions</span></div>
+   <div class="stat"><b>${active.length}</b><span>Sessions angelegt</span></div>
+   <div class="stat"><b>${booked} / ${tgt}</b><span>Vpn gebucht</span><div class="bar"><i style="width:${Math.min(100,booked/tgt*100)}%"></i></div></div>
+   <div class="stat"><b>${done}</b><span>durchgeführt</span></div>`;
+}
+
+function renderAvail(){
+  const el=$("#tab-verfuegbarkeit");
+  if(!S.ready){el.innerHTML=`<div class="card empty">Daten werden geladen …</div>`;return}
+  const pills=S.people.map(p=>`<button class="pill" data-sel="${esc(p.id)}" aria-pressed="${S.selected===p.id}"><span class="dot" style="background:${pcolor(p.id)}"></span>${esc(p.name)}</button>`).join("");
+  let html=`<div class="toolbar">
+    <span class="hint" style="font-weight:600;color:var(--ink)">Bearbeiten für:</span>${pills||'<span class="hint">Noch keine Personen</span>'}
+    <form id="addPerson" style="display:flex;gap:6px"><input id="newPerson" placeholder="Neue Person" aria-label="Neue Person" style="width:130px"><button type="submit">Hinzufügen</button></form>
+    <span class="grow"></span>
+    <label>Von <input type="date" id="cfgStart" value="${esc(S.config.start)}"></label>
+    <label>Bis <input type="date" id="cfgEnd" value="${esc(S.config.end)}"></label>
+  </div>
+  <div class="legend"><span><i class="sw" style="background:var(--sunk)"></i>weniger als 2 Personen</span><span><i class="sw" style="background:var(--ok-soft)"></i>mind. 2 Personen (1 Session)</span><span><i class="sw" style="background:var(--ok-soft);border-color:var(--ok)"></i>4 Personen (2 Labore parallel)</span><span><span class="capdots"><i class="on"></i></span> frei</span><span><span class="capdots"><i class="used"></i></span> Session angelegt</span></div>
+  <p class="hint">${S.selected?`Klick auf einen Slot schaltet die Verfügbarkeit von <b>${esc(pname(S.selected))}</b> ein oder aus.`:"Wähle oben eine Person, um ihre Verfügbarkeit einzutragen."}</p>`;
+  const days=weekdays();const weeks=[];
+  for(let i=0;i<days.length;i+=5)weeks.push(days.slice(i,i+5));
+  if(!weeks.length)html+=`<div class="card empty">Kein gültiger Zeitraum. Setze oben «Von» und «Bis».</div>`;
+  for(const w of weeks){
+    html+=`<div class="week"><h3>KW ${isoWeek(pd(w[0]))} <span class="muted" style="font-family:var(--f-body);font-weight:400;font-size:12px">${dShort(w[0])} – ${dShort(w[w.length-1])}</span></h3><div class="days">`;
+    for(const d of w){
+      const out=!inRange(d);
+      html+=`<div class="day${out?" out":""}"><div class="dname">${dShort(d)}</div>`;
+      for(const sl of [1,2]){
+        const av=availFor(d,sl),cap=capacity(av.length),used=Math.min(cap,activeSess(d,sl).length);
+        const mine=S.selected&&av.includes(S.selected);
+        const dots=Array.from({length:S.config.labs||2},(_,k)=>`<i class="${k<used?"used":k<cap?"on":""}"></i>`).join("");
+        html+=`<button class="slotbox ${cap>=2?"cap2":cap>=1?"cap1":""}${mine?" mine":""}" data-toggle="${d}|${sl}" ${(!S.selected||out)?"disabled":""} aria-label="${dLong(d)} Slot ${sl}">
+          <span class="row"><span>Slot ${sl} · ${SLOTS[sl].team}</span><span class="capdots" title="${cap} Session(s) möglich">${dots}</span></span>
+          <span class="chips">${av.map(id=>`<span class="chip" style="background:${pcolor(id)}">${esc(pname(id))}</span>`).join("")}</span></button>`;
+      }
+      html+=`</div>`;
+    }
+    html+=`</div></div>`;
+  }
+  el.innerHTML=html;
+}
+
+function renderSlots(){
+  const el=$("#tab-slots");
+  if(!S.ready){el.innerHTML=`<div class="card empty">Daten werden geladen …</div>`;return}
+  const rows=[];
+  for(const d of weekdays())if(inRange(d))for(const sl of [1,2]){
+    const av=availFor(d,sl),cap=capacity(av.length),act=activeSess(d,sl).length;
+    if(cap>0||act>0)rows.push({d,sl,av,cap,act});
+  }
+  const missing=rows.reduce((n,r)=>n+Math.max(0,r.cap-r.act),0);
+  let html=`<div class="toolbar"><span class="hint grow">Ein Slot ist möglich, wenn mindestens zwei Versuchsleiter:innen verfügbar sind. Pro Slot höchstens ${S.config.labs||2} Sessions (Labore).</span>
+    <button class="primary" id="createAll" ${missing?"":"disabled"}>Alle möglichen anlegen (${missing})</button>
+    <button id="copyOrsee">ORSEE-Liste kopieren</button></div>`;
+  if(!rows.length){el.innerHTML=html+`<div class="card empty">Noch keine möglichen Slots. Trage zuerst Verfügbarkeiten ein: pro Slot braucht es zwei Personen.</div>`;return}
+  html+=`<div class="card tablewrap"><table><thead><tr><th>Datum</th><th>Zeit Vp</th><th>Verfügbar</th><th>Möglich</th><th>Angelegt</th><th></th></tr></thead><tbody>`;
+  let lastW=null;
+  for(const r of rows){
+    const kw=isoWeek(pd(r.d));
+    if(kw!==lastW){html+=`<tr class="wkhead"><td colspan="6">KW ${kw}</td></tr>`;lastW=kw}
+    html+=`<tr><td class="time">${dShort(r.d)}</td><td class="time">Slot ${r.sl} · ${SLOTS[r.sl].vp}</td>
+      <td><span class="chips">${r.av.map(id=>`<span class="chip" style="background:${pcolor(id)}">${esc(pname(id))}</span>`).join("")}</span></td>
+      <td class="num">${r.cap}</td><td class="num">${r.act}${r.act>r.cap?' <span class="warn">mehr als möglich</span>':""}</td>
+      <td style="white-space:nowrap"><button data-addsess="${r.d}|${r.sl}" ${r.act>=r.cap?"disabled":""}>+ Session</button></td></tr>`;
+  }
+  el.innerHTML=html+`</tbody></table></div>`;
+}
+
+function renderBook(){
+  const el=$("#tab-buchungen");
+  if(!S.ready){el.innerHTML=`<div class="card empty">Daten werden geladen …</div>`;return}
+  const f=renderBook.filter||"alle";
+  const key=s=>s.date+s.slot+s.lab;
+  const list=S.sessions.slice().sort((a,b)=>key(a).localeCompare(key(b))).filter(s=>f==="alle"||s.status===f);
+  let html=`<div class="toolbar"><label>Status <select id="fStatus"><option value="alle">Alle</option>${STATUS.map(([k,v])=>`<option value="${k}" ${f===k?"selected":""}>${v}</option>`).join("")}</select></label>
+   <span class="hint grow">Änderungen werden sofort für alle gespeichert. Für die Vp genügt ein Code, wenn ihr keine Namen speichern wollt.</span></div>`;
+  if(!S.sessions.length){el.innerHTML=html+`<div class="card empty">Noch keine Sessions. Lege sie unter «2 · Slots für ORSEE» an.</div>`;return}
+  html+=`<div class="card tablewrap"><table><thead><tr><th>Datum</th><th>Zeit Vp</th><th>Labor</th><th>Status</th><th>Vp</th><th>VL 1</th><th>VL 2</th><th>Notiz</th><th></th></tr></thead><tbody>`;
+  for(const s of list){
+    const av=availFor(s.date,s.slot);
+    const opt=sel=>`<option value="">–</option>`+S.people.map(p=>`<option value="${esc(p.id)}" ${sel===p.id?"selected":""}>${esc(p.name)}${av.includes(p.id)?"":" (nicht verfügbar)"}</option>`).join("");
+    const w1=s.vl1&&!av.includes(s.vl1),w2=s.vl2&&!av.includes(s.vl2),dup=s.vl1&&s.vl1===s.vl2;
+    html+=`<tr data-id="${esc(s.id)}"><td class="time">${dShort(s.date)}</td><td class="time">${SLOTS[s.slot].vp}</td><td class="num">Labor ${s.lab}</td>
+     <td><select data-f="status" aria-label="Status">${STATUS.map(([k,v])=>`<option value="${k}" ${s.status===k?"selected":""}>${v}</option>`).join("")}</select></td>
+     <td><input data-f="subject" value="${esc(s.subject)}" placeholder="Name oder Code" aria-label="Versuchsperson"></td>
+     <td><select data-f="vl1" aria-label="Versuchsleiter:in 1">${opt(s.vl1)}</select>${w1?'<span class="warn">nicht als verfügbar eingetragen</span>':""}</td>
+     <td><select data-f="vl2" aria-label="Versuchsleiter:in 2">${opt(s.vl2)}</select>${dup?'<span class="warn">zweimal dieselbe Person</span>':w2?'<span class="warn">nicht als verfügbar eingetragen</span>':""}</td>
+     <td class="note"><input data-f="note" value="${esc(s.note)}" aria-label="Notiz"></td>
+     <td style="white-space:nowrap">${S.deleting===s.id?`<span class="confirm"><button data-delyes="${esc(s.id)}">Löschen</button><button class="ghost" data-delno>Abbrechen</button></span>`:`<button class="ghost" data-del="${esc(s.id)}" aria-label="Session löschen">✕</button>`}</td></tr>`;
+  }
+  el.innerHTML=html+`</tbody></table></div>`;
+}
+
+function renderAll(){renderStats();renderAvail();renderSlots();renderBook()}
+
+function route(){const t=(location.hash||"#verfuegbarkeit").slice(1);const tab=["verfuegbarkeit","slots","buchungen"].includes(t)?t:"verfuegbarkeit";
+  document.querySelectorAll("nav.tabs a").forEach(a=>a.setAttribute("aria-current",a.dataset.tab===tab?"page":"false"));
+  for(const k of ["verfuegbarkeit","slots","buchungen"])$("#tab-"+k).hidden=k!==tab}
+addEventListener("hashchange",route);route();
+
+// ---------- data ----------
+async function loadPeople(){const{data,error}=await client.from("mp_people").select("*").order("sort_order").order("name");if(error)throw error;S.people=data}
+async function loadAvail(){const{data,error}=await client.from("mp_avail").select("date,slot,person_id").limit(5000);if(error)throw error;S.avail=new Set(data.map(r=>r.date+"_"+r.slot+"_"+r.person_id))}
+async function loadSessions(){const{data,error}=await client.from("mp_sessions").select("*").limit(5000);if(error)throw error;
+  S.sessions=data.map(r=>({...r,vl1:r.vl1||"",vl2:r.vl2||""}))}
+async function loadConfig(){const{data,error}=await client.from("mp_config").select("*").eq("id",1).maybeSingle();if(error)throw error;
+  if(data)S.config={start:data.start_day,end:data.end_day,labs:data.labs,target:data.target}}
+const LOADERS={mp_people:loadPeople,mp_avail:loadAvail,mp_sessions:loadSessions,mp_config:loadConfig};
+async function reload(name){try{await LOADERS[name]();renderAll()}catch(e){toast(msg(e))}}
+function msg(e){const m=(e&&e.message)||String(e);if(e&&e.code==="23505")return"Diesen Eintrag gibt es schon. Die Ansicht wurde aktualisiert.";return"Speichern hat nicht geklappt: "+m}
+async function run(q,table){const{error}=await q;if(error){toast(msg(error));await reload(table);return false}await reload(table);return true}
+
+function subscribe(){
+  if(S.channel)client.removeChannel(S.channel);
+  let ch=client.channel("messplanung");
+  for(const t of Object.keys(LOADERS))ch=ch.on("postgres_changes",{event:"*",schema:"public",table:t},()=>{clearTimeout(subscribe["t"+t]);subscribe["t"+t]=setTimeout(()=>reload(t),250)});
+  S.channel=ch.subscribe();
+}
+
+const slug=s=>s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,40)||"p";
+function nextLab(d,sl){const used=new Set(activeSess(d,sl).map(s=>s.lab));for(let l=1;l<=(S.config.labs||2);l++)if(!used.has(l))return l;return null}
+async function createSession(d,sl,quiet){
+  const lab=nextLab(d,sl);if(!lab)return false;
+  const ex=S.sessions.find(s=>s.date===d&&s.slot===sl&&s.lab===lab);
+  const q=ex?client.from("mp_sessions").update({status:"geplant"}).eq("id",ex.id)
+            :client.from("mp_sessions").insert({date:d,slot:sl,lab,status:"geplant"});
+  const{error}=await q;if(error){toast(msg(error));return false}
+  if(!quiet)await reload("mp_sessions");return true;
+}
+
+document.addEventListener("click",async e=>{
+  const t=e.target.closest("button");if(!t||!S.ready)return;
+  if(t.dataset.sel){S.selected=S.selected===t.dataset.sel?null:t.dataset.sel;renderAvail();return}
+  if(t.dataset.toggle){const[d,sl]=t.dataset.toggle.split("|");const key=`${d}_${sl}_${S.selected}`;t.disabled=true;
+    if(S.avail.has(key))await run(client.from("mp_avail").delete().match({date:d,slot:Number(sl),person_id:S.selected}),"mp_avail");
+    else await run(client.from("mp_avail").insert({date:d,slot:Number(sl),person_id:S.selected}),"mp_avail");
+    return}
+  if(t.dataset.addsess){const[d,sl]=t.dataset.addsess.split("|");t.disabled=true;if(await createSession(d,Number(sl)))toast("Session angelegt");return}
+  if(t.id==="createAll"){t.disabled=true;let n=0;
+    for(const d of weekdays())if(inRange(d))for(const sl of [1,2]){
+      while(activeSess(d,sl).length<capacity(availFor(d,sl).length)){if(!await createSession(d,sl,true))break;await loadSessions();n++}}
+    renderAll();toast(n+" Sessions angelegt");return}
+  if(t.id==="copyOrsee"){const key=s=>s.date+s.slot+s.lab;
+    const lines=S.sessions.filter(s=>s.status==="geplant"||s.status==="orsee").sort((a,b)=>key(a).localeCompare(key(b)))
+      .map(s=>`${dLong(s.date)}\t${SLOTS[s.slot].vp}\tLabor ${s.lab}`).join("\n");
+    if(!lines){toast("Keine geplanten Sessions zum Kopieren.");return}
+    try{await navigator.clipboard.writeText(lines);toast("Liste kopiert ("+lines.split("\n").length+" Sessions)")}catch{toast("Kopieren nicht möglich in diesem Browser.")}
+    return}
+  if(t.dataset.del){S.deleting=t.dataset.del;renderBook();return}
+  if(t.dataset.delno!==undefined){S.deleting=null;renderBook();return}
+  if(t.dataset.delyes){const id=t.dataset.delyes;S.deleting=null;if(await run(client.from("mp_sessions").delete().eq("id",id),"mp_sessions"))toast("Session gelöscht");return}
+});
+document.addEventListener("submit",async e=>{
+  if(e.target.id==="loginForm"){e.preventDefault();login();return}
+  if(e.target.id!=="addPerson")return;e.preventDefault();
+  const name=$("#newPerson").value.trim();if(!name)return;
+  let id=slug(name),i=2;while(person(id))id=slug(name)+"-"+i++;
+  if(await run(client.from("mp_people").insert({id,name,sort_order:S.people.length+1}),"mp_people")){S.selected=id;renderAll();toast(name+" hinzugefügt")}
+});
+document.addEventListener("change",async e=>{
+  const t=e.target;if(!S.ready)return;
+  if(t.id==="fStatus"){renderBook.filter=t.value;renderBook();return}
+  if(t.id==="cfgStart"||t.id==="cfgEnd"){if(!t.value)return;
+    await run(client.from("mp_config").update({[t.id==="cfgStart"?"start_day":"end_day"]:t.value}).eq("id",1),"mp_config");return}
+  const tr=t.closest("tr[data-id]");
+  if(tr&&t.dataset.f){let v=t.value;if((t.dataset.f==="vl1"||t.dataset.f==="vl2")&&!v)v=null;
+    await run(client.from("mp_sessions").update({[t.dataset.f]:v}).eq("id",tr.dataset.id),"mp_sessions")}
+});
+
+// ---------- auth ----------
+function show(v){$("#loginView").hidden=v!=="login";$("#appView").hidden=v!=="app";$("#who").hidden=v!=="app"}
+async function enter(user){
+  show("app");$("#whoami").textContent=user?.email||"";
+  try{await Promise.all([loadPeople(),loadAvail(),loadSessions(),loadConfig()]);S.ready=true;banner("");renderAll();subscribe()}
+  catch(e){banner("Die Daten konnten nicht geladen werden: "+((e&&e.message)||e)+". Wurde migration_messplanung.sql in Supabase ausgeführt?",true)}
+}
+async function login(){
+  $("#loginError").hidden=true;$("#loginBtn").disabled=true;
+  const email=$("#email").value.trim();
+  const{data,error}=await client.auth.signInWithPassword({email,password:$("#password").value});
+  $("#loginBtn").disabled=false;
+  if(error){$("#loginError").textContent=/invalid/i.test(error.message)?"E-Mail oder Passwort falsch.":error.message;$("#loginError").hidden=false;return}
+  $("#password").value="";try{localStorage.setItem("labbooking.email",email)}catch{}
+  enter(data.session?.user||data.user);
+}
+$("#logoutBtn").addEventListener("click",()=>client.auth.signOut());
+(async()=>{
+  try{$("#email").value=localStorage.getItem("labbooking.email")||""}catch{}
+  const{data}=await client.auth.getSession();
+  if(data&&data.session)enter(data.session.user);else show("login");
+  client.auth.onAuthStateChange(ev=>{if(ev==="SIGNED_OUT"){if(S.channel)client.removeChannel(S.channel);S.ready=false;show("login")}});
+})();
+renderAll();
+})();
+</script>
+</body>
+</html>
