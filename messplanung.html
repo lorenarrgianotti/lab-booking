@@ -1,14 +1,14 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Schlafinseln Messplanung</title>
+<title>Sleep Islands Scheduling</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 <script>
-/* Gleiche Supabase-Verbindung und gleiche Konten wie das SNS lab room booking system (index.html). */
+/* Same Supabase connection and same accounts as the SNS lab room booking system (index.html). */
 const CONFIG = {
   supabaseUrl:     "https://anrqyvwamarqpgcxqmwp.supabase.co",
   supabaseAnonKey: "sb_publishable_8yd8of9evF_aOoz_d4HW_w_kLLKDh-9",
@@ -126,12 +126,12 @@ td.note input{min-width:140px}
 <div class="wrap">
   <header class="top">
     <div>
-      <div class="eyebrow">Sleep Intrusions · Ruhe-EEG</div>
-      <h1>Schlafinseln Messplanung</h1>
-      <div class="muted">Slot 1: Vp 08:30–09:45 (Team 08:15–10:00) · Slot 2: Vp 10:15–11:30 (Team 10:00–12:00) · 2 Versuchsleiter:innen pro Session</div>
+      <div class="eyebrow">Sleep Intrusions · Resting EEG</div>
+      <h1>Sleep Islands · Recording Schedule</h1>
+      <div class="muted">Slot 1: participant 08:30–09:45 (team 08:15–10:00) · Slot 2: participant 10:15–11:30 (team 10:00–12:00) · 2 experimenters per session</div>
     </div>
     <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">
-      <div class="who" id="who" hidden><span id="whoami"></span><button class="ghost" id="logoutBtn">Abmelden</button></div>
+      <div class="who" id="who" hidden><span id="whoami"></span><button class="ghost" id="logoutBtn">Sign out</button></div>
       <div class="stats" id="stats"></div>
     </div>
   </header>
@@ -140,20 +140,20 @@ td.note input{min-width:140px}
 
   <section id="loginView" hidden>
     <form class="login" id="loginForm">
-      <h2>Anmelden</h2>
-      <p class="hint" style="margin:0">Mit dem persönlichen Konto des SNS lab room booking system.</p>
-      <label>E-Mail <input id="email" type="email" autocomplete="username" required></label>
-      <label>Passwort <input id="password" type="password" autocomplete="current-password" required></label>
-      <button class="primary" type="submit" id="loginBtn">Anmelden</button>
+      <h2>Sign in</h2>
+      <p class="hint" style="margin:0">Use your personal account of the SNS lab room booking system.</p>
+      <label>Email <input id="email" type="email" autocomplete="username" required></label>
+      <label>Password <input id="password" type="password" autocomplete="current-password" required></label>
+      <button class="primary" type="submit" id="loginBtn">Sign in</button>
       <p class="err" id="loginError" hidden></p>
     </form>
   </section>
 
   <div id="appView" hidden style="display:flex;flex-direction:column;gap:18px">
-    <nav class="tabs" aria-label="Bereiche">
-      <a href="#verfuegbarkeit" data-tab="verfuegbarkeit">1 · Verfügbarkeiten</a>
-      <a href="#slots" data-tab="slots">2 · Slots für ORSEE</a>
-      <a href="#buchungen" data-tab="buchungen">3 · Buchungen</a>
+    <nav class="tabs" aria-label="Sections">
+      <a href="#verfuegbarkeit" data-tab="verfuegbarkeit">1 · Availability</a>
+      <a href="#slots" data-tab="slots">2 · Slots for ORSEE</a>
+      <a href="#buchungen" data-tab="buchungen">3 · Bookings</a>
     </nav>
     <section class="panel" id="tab-verfuegbarkeit"></section>
     <section class="panel" id="tab-slots" hidden></section>
@@ -165,8 +165,8 @@ td.note input{min-width:140px}
 <script>
 (function(){
 const SLOTS={1:{vp:"08:30–09:45",team:"08:15–10:00"},2:{vp:"10:15–11:30",team:"10:00–12:00"}};
-const STATUS=[["geplant","Geplant"],["orsee","In ORSEE"],["gebucht","Gebucht"],["durchgefuehrt","Durchgeführt"],["abgesagt","Abgesagt"]];
-const WD=["So","Mo","Di","Mi","Do","Fr","Sa"];
+const STATUS=[["geplant","Planned"],["orsee","In ORSEE"],["gebucht","Booked"],["durchgefuehrt","Done"],["abgesagt","Cancelled"]];
+const WD=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 const PCOL=["var(--p1)","var(--p2)","var(--p3)","var(--p4)","var(--p5)","var(--p6)"];
 const S={ready:false,people:[],avail:new Set(),sessions:[],config:{start:"2026-11-16",end:"2026-12-18",labs:2,target:50},selected:null,deleting:null,channel:null};
 const client=supabase.createClient(CONFIG.supabaseUrl,CONFIG.supabaseAnonKey);
@@ -202,30 +202,30 @@ function renderStats(){
   let possible=0;for(const d of weekdays())if(inRange(d))for(const sl of [1,2])possible+=capacity(availFor(d,sl).length);
   const tgt=S.config.target||50;
   $("#stats").innerHTML=`
-   <div class="stat"><b>${possible}</b><span>mögliche Sessions</span></div>
-   <div class="stat"><b>${active.length}</b><span>Sessions angelegt</span></div>
-   <div class="stat"><b>${booked} / ${tgt}</b><span>Vpn gebucht</span><div class="bar"><i style="width:${Math.min(100,booked/tgt*100)}%"></i></div></div>
-   <div class="stat"><b>${done}</b><span>durchgeführt</span></div>`;
+   <div class="stat"><b>${possible}</b><span>possible sessions</span></div>
+   <div class="stat"><b>${active.length}</b><span>sessions created</span></div>
+   <div class="stat"><b>${booked} / ${tgt}</b><span>participants booked</span><div class="bar"><i style="width:${Math.min(100,booked/tgt*100)}%"></i></div></div>
+   <div class="stat"><b>${done}</b><span>done</span></div>`;
 }
 
 function renderAvail(){
   const el=$("#tab-verfuegbarkeit");
-  if(!S.ready){el.innerHTML=`<div class="card empty">Daten werden geladen …</div>`;return}
+  if(!S.ready){el.innerHTML=`<div class="card empty">Loading data …</div>`;return}
   const pills=S.people.map(p=>`<button class="pill" data-sel="${esc(p.id)}" aria-pressed="${S.selected===p.id}"><span class="dot" style="background:${pcolor(p.id)}"></span>${esc(p.name)}</button>`).join("");
   let html=`<div class="toolbar">
-    <span class="hint" style="font-weight:600;color:var(--ink)">Bearbeiten für:</span>${pills||'<span class="hint">Noch keine Personen</span>'}
-    <form id="addPerson" style="display:flex;gap:6px"><input id="newPerson" placeholder="Neue Person" aria-label="Neue Person" style="width:130px"><button type="submit">Hinzufügen</button></form>
+    <span class="hint" style="font-weight:600;color:var(--ink)">Edit for:</span>${pills||'<span class="hint">No people yet</span>'}
+    <form id="addPerson" style="display:flex;gap:6px"><input id="newPerson" placeholder="New person" aria-label="New person" style="width:130px"><button type="submit">Add</button></form>
     <span class="grow"></span>
-    <label>Von <input type="date" id="cfgStart" value="${esc(S.config.start)}"></label>
-    <label>Bis <input type="date" id="cfgEnd" value="${esc(S.config.end)}"></label>
+    <label>From <input type="date" id="cfgStart" value="${esc(S.config.start)}"></label>
+    <label>To <input type="date" id="cfgEnd" value="${esc(S.config.end)}"></label>
   </div>
-  <div class="legend"><span><i class="sw" style="background:var(--sunk)"></i>weniger als 2 Personen</span><span><i class="sw" style="background:var(--ok-soft)"></i>mind. 2 Personen (1 Session)</span><span><i class="sw" style="background:var(--ok-soft);border-color:var(--ok)"></i>4 Personen (2 Labore parallel)</span><span><span class="capdots"><i class="on"></i></span> frei</span><span><span class="capdots"><i class="used"></i></span> Session angelegt</span></div>
-  <p class="hint">${S.selected?`Klick auf einen Slot schaltet die Verfügbarkeit von <b>${esc(pname(S.selected))}</b> ein oder aus.`:"Wähle oben eine Person, um ihre Verfügbarkeit einzutragen."}</p>`;
+  <div class="legend"><span><i class="sw" style="background:var(--sunk)"></i>fewer than 2 people</span><span><i class="sw" style="background:var(--ok-soft)"></i>at least 2 people (1 session)</span><span><i class="sw" style="background:var(--ok-soft);border-color:var(--ok)"></i>4 people (2 labs in parallel)</span><span><span class="capdots"><i class="on"></i></span> free</span><span><span class="capdots"><i class="used"></i></span> session created</span></div>
+  <p class="hint">${S.selected?`Click a slot to switch <b>${esc(pname(S.selected))}</b>'s availability on or off.`:"Choose a person above to enter their availability."}</p>`;
   const days=weekdays();const weeks=[];
   for(let i=0;i<days.length;i+=5)weeks.push(days.slice(i,i+5));
-  if(!weeks.length)html+=`<div class="card empty">Kein gültiger Zeitraum. Setze oben «Von» und «Bis».</div>`;
+  if(!weeks.length)html+=`<div class="card empty">No valid period. Set «From» and «To» above.</div>`;
   for(const w of weeks){
-    html+=`<div class="week"><h3>KW ${isoWeek(pd(w[0]))} <span class="muted" style="font-family:var(--f-body);font-weight:400;font-size:12px">${dShort(w[0])} – ${dShort(w[w.length-1])}</span></h3><div class="days">`;
+    html+=`<div class="week"><h3>Week ${isoWeek(pd(w[0]))} <span class="muted" style="font-family:var(--f-body);font-weight:400;font-size:12px">${dShort(w[0])} – ${dShort(w[w.length-1])}</span></h3><div class="days">`;
     for(const d of w){
       const out=!inRange(d);
       html+=`<div class="day${out?" out":""}"><div class="dname">${dShort(d)}</div>`;
@@ -234,7 +234,7 @@ function renderAvail(){
         const mine=S.selected&&av.includes(S.selected);
         const dots=Array.from({length:S.config.labs||2},(_,k)=>`<i class="${k<used?"used":k<cap?"on":""}"></i>`).join("");
         html+=`<button class="slotbox ${cap>=2?"cap2":cap>=1?"cap1":""}${mine?" mine":""}" data-toggle="${d}|${sl}" ${(!S.selected||out)?"disabled":""} aria-label="${dLong(d)} Slot ${sl}">
-          <span class="row"><span>Slot ${sl} · ${SLOTS[sl].team}</span><span class="capdots" title="${cap} Session(s) möglich">${dots}</span></span>
+          <span class="row"><span>Slot ${sl} · ${SLOTS[sl].team}</span><span class="capdots" title="${cap} session(s) possible">${dots}</span></span>
           <span class="chips">${av.map(id=>`<span class="chip" style="background:${pcolor(id)}">${esc(pname(id))}</span>`).join("")}</span></button>`;
       }
       html+=`</div>`;
@@ -246,25 +246,25 @@ function renderAvail(){
 
 function renderSlots(){
   const el=$("#tab-slots");
-  if(!S.ready){el.innerHTML=`<div class="card empty">Daten werden geladen …</div>`;return}
+  if(!S.ready){el.innerHTML=`<div class="card empty">Loading data …</div>`;return}
   const rows=[];
   for(const d of weekdays())if(inRange(d))for(const sl of [1,2]){
     const av=availFor(d,sl),cap=capacity(av.length),act=activeSess(d,sl).length;
     if(cap>0||act>0)rows.push({d,sl,av,cap,act});
   }
   const missing=rows.reduce((n,r)=>n+Math.max(0,r.cap-r.act),0);
-  let html=`<div class="toolbar"><span class="hint grow">Ein Slot ist möglich, wenn mindestens zwei Versuchsleiter:innen verfügbar sind. Pro Slot höchstens ${S.config.labs||2} Sessions (Labore).</span>
-    <button class="primary" id="createAll" ${missing?"":"disabled"}>Alle möglichen anlegen (${missing})</button>
-    <button id="copyOrsee">ORSEE-Liste kopieren</button></div>`;
-  if(!rows.length){el.innerHTML=html+`<div class="card empty">Noch keine möglichen Slots. Trage zuerst Verfügbarkeiten ein: pro Slot braucht es zwei Personen.</div>`;return}
-  html+=`<div class="card tablewrap"><table><thead><tr><th>Datum</th><th>Zeit Vp</th><th>Verfügbar</th><th>Möglich</th><th>Angelegt</th><th></th></tr></thead><tbody>`;
+  let html=`<div class="toolbar"><span class="hint grow">A slot is possible when at least two experimenters are available. At most ${S.config.labs||2} sessions (labs) per slot.</span>
+    <button class="primary" id="createAll" ${missing?"":"disabled"}>Create all possible (${missing})</button>
+    <button id="copyOrsee">Copy ORSEE list</button></div>`;
+  if(!rows.length){el.innerHTML=html+`<div class="card empty">No possible slots yet. Enter availability first: each slot needs two people.</div>`;return}
+  html+=`<div class="card tablewrap"><table><thead><tr><th>Date</th><th>Participant time</th><th>Available</th><th>Possible</th><th>Created</th><th></th></tr></thead><tbody>`;
   let lastW=null;
   for(const r of rows){
     const kw=isoWeek(pd(r.d));
-    if(kw!==lastW){html+=`<tr class="wkhead"><td colspan="6">KW ${kw}</td></tr>`;lastW=kw}
+    if(kw!==lastW){html+=`<tr class="wkhead"><td colspan="6">Week ${kw}</td></tr>`;lastW=kw}
     html+=`<tr><td class="time">${dShort(r.d)}</td><td class="time">Slot ${r.sl} · ${SLOTS[r.sl].vp}</td>
       <td><span class="chips">${r.av.map(id=>`<span class="chip" style="background:${pcolor(id)}">${esc(pname(id))}</span>`).join("")}</span></td>
-      <td class="num">${r.cap}</td><td class="num">${r.act}${r.act>r.cap?' <span class="warn">mehr als möglich</span>':""}</td>
+      <td class="num">${r.cap}</td><td class="num">${r.act}${r.act>r.cap?' <span class="warn">more than possible</span>':""}</td>
       <td style="white-space:nowrap"><button data-addsess="${r.d}|${r.sl}" ${r.act>=r.cap?"disabled":""}>+ Session</button></td></tr>`;
   }
   el.innerHTML=html+`</tbody></table></div>`;
@@ -272,25 +272,25 @@ function renderSlots(){
 
 function renderBook(){
   const el=$("#tab-buchungen");
-  if(!S.ready){el.innerHTML=`<div class="card empty">Daten werden geladen …</div>`;return}
+  if(!S.ready){el.innerHTML=`<div class="card empty">Loading data …</div>`;return}
   const f=renderBook.filter||"alle";
   const key=s=>s.date+s.slot+s.lab;
   const list=S.sessions.slice().sort((a,b)=>key(a).localeCompare(key(b))).filter(s=>f==="alle"||s.status===f);
-  let html=`<div class="toolbar"><label>Status <select id="fStatus"><option value="alle">Alle</option>${STATUS.map(([k,v])=>`<option value="${k}" ${f===k?"selected":""}>${v}</option>`).join("")}</select></label>
-   <span class="hint grow">Änderungen werden sofort für alle gespeichert. Für die Vp genügt ein Code, wenn ihr keine Namen speichern wollt.</span></div>`;
-  if(!S.sessions.length){el.innerHTML=html+`<div class="card empty">Noch keine Sessions. Lege sie unter «2 · Slots für ORSEE» an.</div>`;return}
-  html+=`<div class="card tablewrap"><table><thead><tr><th>Datum</th><th>Zeit Vp</th><th>Labor</th><th>Status</th><th>Vp</th><th>VL 1</th><th>VL 2</th><th>Notiz</th><th></th></tr></thead><tbody>`;
+  let html=`<div class="toolbar"><label>Status <select id="fStatus"><option value="alle">All</option>${STATUS.map(([k,v])=>`<option value="${k}" ${f===k?"selected":""}>${v}</option>`).join("")}</select></label>
+   <span class="hint grow">Changes are saved immediately for everyone. A code is enough for the participant if you prefer not to store names.</span></div>`;
+  if(!S.sessions.length){el.innerHTML=html+`<div class="card empty">No sessions yet. Create them under «2 · Slots for ORSEE».</div>`;return}
+  html+=`<div class="card tablewrap"><table><thead><tr><th>Date</th><th>Participant time</th><th>Lab</th><th>Status</th><th>Participant</th><th>Experimenter 1</th><th>Experimenter 2</th><th>Note</th><th></th></tr></thead><tbody>`;
   for(const s of list){
     const av=availFor(s.date,s.slot);
-    const opt=sel=>`<option value="">–</option>`+S.people.map(p=>`<option value="${esc(p.id)}" ${sel===p.id?"selected":""}>${esc(p.name)}${av.includes(p.id)?"":" (nicht verfügbar)"}</option>`).join("");
+    const opt=sel=>`<option value="">–</option>`+S.people.map(p=>`<option value="${esc(p.id)}" ${sel===p.id?"selected":""}>${esc(p.name)}${av.includes(p.id)?"":" (not available)"}</option>`).join("");
     const w1=s.vl1&&!av.includes(s.vl1),w2=s.vl2&&!av.includes(s.vl2),dup=s.vl1&&s.vl1===s.vl2;
-    html+=`<tr data-id="${esc(s.id)}"><td class="time">${dShort(s.date)}</td><td class="time">${SLOTS[s.slot].vp}</td><td class="num">Labor ${s.lab}</td>
+    html+=`<tr data-id="${esc(s.id)}"><td class="time">${dShort(s.date)}</td><td class="time">${SLOTS[s.slot].vp}</td><td class="num">Lab ${s.lab}</td>
      <td><select data-f="status" aria-label="Status">${STATUS.map(([k,v])=>`<option value="${k}" ${s.status===k?"selected":""}>${v}</option>`).join("")}</select></td>
-     <td><input data-f="subject" value="${esc(s.subject)}" placeholder="Name oder Code" aria-label="Versuchsperson"></td>
-     <td><select data-f="vl1" aria-label="Versuchsleiter:in 1">${opt(s.vl1)}</select>${w1?'<span class="warn">nicht als verfügbar eingetragen</span>':""}</td>
-     <td><select data-f="vl2" aria-label="Versuchsleiter:in 2">${opt(s.vl2)}</select>${dup?'<span class="warn">zweimal dieselbe Person</span>':w2?'<span class="warn">nicht als verfügbar eingetragen</span>':""}</td>
-     <td class="note"><input data-f="note" value="${esc(s.note)}" aria-label="Notiz"></td>
-     <td style="white-space:nowrap">${S.deleting===s.id?`<span class="confirm"><button data-delyes="${esc(s.id)}">Löschen</button><button class="ghost" data-delno>Abbrechen</button></span>`:`<button class="ghost" data-del="${esc(s.id)}" aria-label="Session löschen">✕</button>`}</td></tr>`;
+     <td><input data-f="subject" value="${esc(s.subject)}" placeholder="Name or code" aria-label="Participant"></td>
+     <td><select data-f="vl1" aria-label="Experimenter 1">${opt(s.vl1)}</select>${w1?'<span class="warn">not marked as available</span>':""}</td>
+     <td><select data-f="vl2" aria-label="Experimenter 2">${opt(s.vl2)}</select>${dup?'<span class="warn">same person twice</span>':w2?'<span class="warn">not marked as available</span>':""}</td>
+     <td class="note"><input data-f="note" value="${esc(s.note)}" aria-label="Note"></td>
+     <td style="white-space:nowrap">${S.deleting===s.id?`<span class="confirm"><button data-delyes="${esc(s.id)}">Delete</button><button class="ghost" data-delno>Cancel</button></span>`:`<button class="ghost" data-del="${esc(s.id)}" aria-label="Delete session">✕</button>`}</td></tr>`;
   }
   el.innerHTML=html+`</tbody></table></div>`;
 }
@@ -311,7 +311,7 @@ async function loadConfig(){const{data,error}=await client.from("mp_config").sel
   if(data)S.config={start:data.start_day,end:data.end_day,labs:data.labs,target:data.target}}
 const LOADERS={mp_people:loadPeople,mp_avail:loadAvail,mp_sessions:loadSessions,mp_config:loadConfig};
 async function reload(name){try{await LOADERS[name]();renderAll()}catch(e){toast(msg(e))}}
-function msg(e){const m=(e&&e.message)||String(e);if(e&&e.code==="23505")return"Diesen Eintrag gibt es schon. Die Ansicht wurde aktualisiert.";return"Speichern hat nicht geklappt: "+m}
+function msg(e){const m=(e&&e.message)||String(e);if(e&&e.code==="23505")return"This entry already exists. The view has been refreshed.";return"Saving failed: "+m}
 async function run(q,table){const{error}=await q;if(error){toast(msg(error));await reload(table);return false}await reload(table);return true}
 
 function subscribe(){
@@ -339,27 +339,27 @@ document.addEventListener("click",async e=>{
     if(S.avail.has(key))await run(client.from("mp_avail").delete().match({date:d,slot:Number(sl),person_id:S.selected}),"mp_avail");
     else await run(client.from("mp_avail").insert({date:d,slot:Number(sl),person_id:S.selected}),"mp_avail");
     return}
-  if(t.dataset.addsess){const[d,sl]=t.dataset.addsess.split("|");t.disabled=true;if(await createSession(d,Number(sl)))toast("Session angelegt");return}
+  if(t.dataset.addsess){const[d,sl]=t.dataset.addsess.split("|");t.disabled=true;if(await createSession(d,Number(sl)))toast("Session created");return}
   if(t.id==="createAll"){t.disabled=true;let n=0;
     for(const d of weekdays())if(inRange(d))for(const sl of [1,2]){
       while(activeSess(d,sl).length<capacity(availFor(d,sl).length)){if(!await createSession(d,sl,true))break;await loadSessions();n++}}
-    renderAll();toast(n+" Sessions angelegt");return}
+    renderAll();toast(n+" sessions created");return}
   if(t.id==="copyOrsee"){const key=s=>s.date+s.slot+s.lab;
     const lines=S.sessions.filter(s=>s.status==="geplant"||s.status==="orsee").sort((a,b)=>key(a).localeCompare(key(b)))
-      .map(s=>`${dLong(s.date)}\t${SLOTS[s.slot].vp}\tLabor ${s.lab}`).join("\n");
-    if(!lines){toast("Keine geplanten Sessions zum Kopieren.");return}
-    try{await navigator.clipboard.writeText(lines);toast("Liste kopiert ("+lines.split("\n").length+" Sessions)")}catch{toast("Kopieren nicht möglich in diesem Browser.")}
+      .map(s=>`${dLong(s.date)}\t${SLOTS[s.slot].vp}\tLab ${s.lab}`).join("\n");
+    if(!lines){toast("No planned sessions to copy.");return}
+    try{await navigator.clipboard.writeText(lines);toast("List copied ("+lines.split("\n").length+" sessions)")}catch{toast("Copying is not possible in this browser.")}
     return}
   if(t.dataset.del){S.deleting=t.dataset.del;renderBook();return}
   if(t.dataset.delno!==undefined){S.deleting=null;renderBook();return}
-  if(t.dataset.delyes){const id=t.dataset.delyes;S.deleting=null;if(await run(client.from("mp_sessions").delete().eq("id",id),"mp_sessions"))toast("Session gelöscht");return}
+  if(t.dataset.delyes){const id=t.dataset.delyes;S.deleting=null;if(await run(client.from("mp_sessions").delete().eq("id",id),"mp_sessions"))toast("Session deleted");return}
 });
 document.addEventListener("submit",async e=>{
   if(e.target.id==="loginForm"){e.preventDefault();login();return}
   if(e.target.id!=="addPerson")return;e.preventDefault();
   const name=$("#newPerson").value.trim();if(!name)return;
   let id=slug(name),i=2;while(person(id))id=slug(name)+"-"+i++;
-  if(await run(client.from("mp_people").insert({id,name,sort_order:S.people.length+1}),"mp_people")){S.selected=id;renderAll();toast(name+" hinzugefügt")}
+  if(await run(client.from("mp_people").insert({id,name,sort_order:S.people.length+1}),"mp_people")){S.selected=id;renderAll();toast(name+" added")}
 });
 document.addEventListener("change",async e=>{
   const t=e.target;if(!S.ready)return;
@@ -376,14 +376,14 @@ function show(v){$("#loginView").hidden=v!=="login";$("#appView").hidden=v!=="ap
 async function enter(user){
   show("app");$("#whoami").textContent=user?.email||"";
   try{await Promise.all([loadPeople(),loadAvail(),loadSessions(),loadConfig()]);S.ready=true;banner("");renderAll();subscribe()}
-  catch(e){banner("Die Daten konnten nicht geladen werden: "+((e&&e.message)||e)+". Wurde migration_messplanung.sql in Supabase ausgeführt?",true)}
+  catch(e){banner("The data could not be loaded: "+((e&&e.message)||e)+". Has migration_messplanung.sql been run in Supabase?",true)}
 }
 async function login(){
   $("#loginError").hidden=true;$("#loginBtn").disabled=true;
   const email=$("#email").value.trim();
   const{data,error}=await client.auth.signInWithPassword({email,password:$("#password").value});
   $("#loginBtn").disabled=false;
-  if(error){$("#loginError").textContent=/invalid/i.test(error.message)?"E-Mail oder Passwort falsch.":error.message;$("#loginError").hidden=false;return}
+  if(error){$("#loginError").textContent=/invalid/i.test(error.message)?"Wrong email or password.":error.message;$("#loginError").hidden=false;return}
   $("#password").value="";try{localStorage.setItem("labbooking.email",email)}catch{}
   enter(data.session?.user||data.user);
 }
