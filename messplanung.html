@@ -112,6 +112,21 @@ tr.wkhead td{background:var(--sunk);font-weight:600;font-size:12px;color:var(--m
 td input,td select{width:100%;min-width:110px}
 td.note input{min-width:140px}
 .confirm{display:inline-flex;gap:4px;align-items:center}
+.pick{font-size:12px;font-weight:600;border-radius:999px;padding:3px 9px;border:1px solid var(--line);background:var(--surface)}
+.pick[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.pick.obs[aria-pressed="true"]{background:var(--warn-soft);color:var(--warn);border-color:var(--warn)}
+.pick:disabled{text-decoration:line-through}
+.pair{font-size:12px;display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center}
+.pair b{font-weight:600}
+.ok{font-size:11px;color:var(--ok);display:block;margin-top:2px}
+.day.blocked .slotbox{background:repeating-linear-gradient(45deg,var(--sunk),var(--sunk) 6px,var(--surface) 6px,var(--surface) 12px)}
+.dname{display:flex;justify-content:space-between;align-items:center;gap:4px}
+.blk{font-size:11px;padding:1px 6px;border-radius:6px}
+.blk[aria-pressed="true"]{background:var(--bad-soft);color:var(--bad);border-color:var(--bad)}
+.train td{padding:5px 10px}
+td.picks{min-width:260px}
+.obsl{display:flex;flex-wrap:wrap;gap:3px;align-items:center}
+.obsl button{font-size:11px;padding:1px 6px}
 @media (prefers-reduced-motion:no-preference){.slotbox{transition:box-shadow .15s}}
 </style>
 <style>
@@ -128,7 +143,7 @@ td.note input{min-width:140px}
     <div>
       <div class="eyebrow">Sleep Intrusions · Resting EEG</div>
       <h1>Sleep Islands · Recording Schedule</h1>
-      <div class="muted">Slot 1: participant 08:30–09:45 (team 08:15–10:00) · Slot 2: participant 10:15–11:30 (team 10:00–12:00) · 2 experimenters per session</div>
+      <div class="muted">Slot 1: participant 08:30–09:45 (team 08:15–10:00) · Slot 2: participant 10:15–11:30 (team 10:00–12:00) · 2 experimenters per session · 🔴 people observe</div>
     </div>
     <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">
       <div class="who" id="who" hidden><span id="whoami"></span><button class="ghost" id="logoutBtn">Sign out</button></div>
@@ -168,7 +183,7 @@ const SLOTS={1:{vp:"08:30–09:45",team:"08:15–10:00"},2:{vp:"10:15–11:30",t
 const STATUS=[["geplant","Planned"],["orsee","In ORSEE"],["gebucht","Booked"],["durchgefuehrt","Done"],["abgesagt","Cancelled"]];
 const WD=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 const PCOL=["var(--p1)","var(--p2)","var(--p3)","var(--p4)","var(--p5)","var(--p6)"];
-const S={ready:false,people:[],avail:new Set(),sessions:[],config:{start:"2026-11-16",end:"2026-12-18",labs:2,target:50},selected:null,deleting:null,channel:null};
+const S={ready:false,people:[],avail:new Set(),sessions:[],config:{start:"2026-11-16",end:"2026-12-18",labs:2,target:50,blocked:[]},pick:{},selected:null,deleting:null,channel:null};
 const client=supabase.createClient(CONFIG.supabaseUrl,CONFIG.supabaseAnonKey);
 
 const $=s=>document.querySelector(s);
@@ -194,6 +209,16 @@ const light=id=>LIGHT[person(id)?.experience]||"";
 const lname=id=>{const l=light(id);return (l?l+" ":"")+pname(id)};
 const availFor=(date,slot)=>S.people.filter(p=>S.avail.has(date+"_"+slot+"_"+p.id)).map(p=>p.id);
 const capacity=n=>Math.min(S.config.labs||2,Math.floor(n/2));
+const blocked=d=>(S.config.blocked||[]).includes(d);
+const isJoker=id=>!!person(id)?.joker;
+const RANK={green:3,orange:2,red:1};
+const rank=id=>RANK[person(id)?.experience]||2;
+const isObs=id=>person(id)?.experience==="red";
+const busyIn=(d,sl)=>new Set(activeSess(d,sl).flatMap(s=>[s.vl1,s.vl2,...(s.observers||[])]).filter(Boolean));
+function pairNote(a,b){const ra=rank(a),rb=rank(b);
+  if(ra===3&&rb===3)return['ok',"two experts"];
+  if(Math.max(ra,rb)===3)return['ok',pname(ra>=rb?a:b)+" teaches "+pname(ra>=rb?b:a)];
+  return['warn',"nobody experienced in this pair"]}
 const sessFor=(date,slot)=>S.sessions.filter(s=>s.date===date&&s.slot===slot);
 const activeSess=(date,slot)=>sessFor(date,slot).filter(s=>s.status!=="abgesagt");
 
@@ -202,7 +227,7 @@ function renderStats(){
   const active=S.sessions.filter(s=>s.status!=="abgesagt");
   const booked=S.sessions.filter(s=>s.status==="gebucht"||s.status==="durchgefuehrt").length;
   const done=S.sessions.filter(s=>s.status==="durchgefuehrt").length;
-  let possible=0;for(const d of weekdays())if(inRange(d))for(const sl of [1,2])possible+=capacity(availFor(d,sl).length);
+  let possible=0;for(const d of weekdays())if(inRange(d)&&!blocked(d))for(const sl of [1,2])possible+=capacity(availFor(d,sl).length);
   const tgt=S.config.target||50;
   $("#stats").innerHTML=`
    <div class="stat"><b>${possible}</b><span>possible sessions</span></div>
@@ -214,7 +239,7 @@ function renderStats(){
 function renderAvail(){
   const el=$("#tab-verfuegbarkeit");
   if(!S.ready){el.innerHTML=`<div class="card empty">Loading data …</div>`;return}
-  const pills=S.people.map(p=>`<button class="pill" data-sel="${esc(p.id)}" aria-pressed="${S.selected===p.id}"><span class="dot" style="background:${pcolor(p.id)}"></span>${esc(lname(p.id))}</button>`).join("");
+  const pills=S.people.map(p=>`<button class="pill" data-sel="${esc(p.id)}" aria-pressed="${S.selected===p.id}"><span class="dot" style="background:${pcolor(p.id)}"></span>${esc(lname(p.id))}${p.joker?" · jolly":""}</button>`).join("");
   let html=`<div class="toolbar">
     <span class="hint" style="font-weight:600;color:var(--ink)">Edit for:</span>${pills||'<span class="hint">No people yet</span>'}
     <form id="addPerson" style="display:flex;gap:6px"><input id="newPerson" placeholder="New person" aria-label="New person" style="width:130px"><button type="submit">Add</button></form>
@@ -222,7 +247,7 @@ function renderAvail(){
     <label>From <input type="date" id="cfgStart" value="${esc(S.config.start)}"></label>
     <label>To <input type="date" id="cfgEnd" value="${esc(S.config.end)}"></label>
   </div>
-  <div class="legend"><span><i class="sw" style="background:var(--sunk)"></i>fewer than 2 people</span><span><i class="sw" style="background:var(--ok-soft)"></i>at least 2 people (1 session)</span><span><i class="sw" style="background:var(--ok-soft);border-color:var(--ok)"></i>4 people (2 labs in parallel)</span><span><span class="capdots"><i class="on"></i></span> free</span><span><span class="capdots"><i class="used"></i></span> session created</span><span>EEG recording experience: 🟢 a lot · 🟠 a little · 🔴 none</span></div>
+  <div class="legend"><span><i class="sw" style="background:var(--sunk)"></i>fewer than 2 people</span><span><i class="sw" style="background:var(--ok-soft)"></i>at least 2 people (1 session)</span><span><i class="sw" style="background:var(--ok-soft);border-color:var(--ok)"></i>4 people (2 labs in parallel)</span><span><span class="capdots"><i class="on"></i></span> free</span><span><span class="capdots"><i class="used"></i></span> session created</span><span>EEG recording experience: 🟢 a lot · 🟠 a little · 🔴 none</span><span>jolly = always available, no need to enter</span><span>«✕ rec» = no recordings that day</span></div>
   <p class="hint">${S.selected?`Click a slot to switch <b>${esc(pname(S.selected))}</b>'s availability on or off.`:"Choose a person above to enter their availability."}</p>`;
   const days=weekdays();const weeks=[];
   for(let i=0;i<days.length;i+=5)weeks.push(days.slice(i,i+5));
@@ -230,8 +255,8 @@ function renderAvail(){
   for(const w of weeks){
     html+=`<div class="week"><h3>Week ${isoWeek(pd(w[0]))} <span class="muted" style="font-family:var(--f-body);font-weight:400;font-size:12px">${dShort(w[0])} – ${dShort(w[w.length-1])}</span></h3><div class="days">`;
     for(const d of w){
-      const out=!inRange(d);
-      html+=`<div class="day${out?" out":""}"><div class="dname">${dShort(d)}</div>`;
+      const out=!inRange(d),bl=blocked(d);
+      html+=`<div class="day${out?" out":""}${bl?" blocked":""}"><div class="dname"><span>${dShort(d)}${bl?' · <span style="color:var(--bad)">no recordings</span>':""}</span>${out?"":`<button class="blk ghost" data-block="${d}" aria-pressed="${bl}" title="${bl?"Allow recordings again":"No recordings on this day"}">✕ rec</button>`}</div>`;
       for(const sl of [1,2]){
         const av=availFor(d,sl),cap=capacity(av.length),used=Math.min(cap,activeSess(d,sl).length);
         const mine=S.selected&&av.includes(S.selected);
@@ -250,25 +275,46 @@ function renderAvail(){
 function renderSlots(){
   const el=$("#tab-slots");
   if(!S.ready){el.innerHTML=`<div class="card empty">Loading data …</div>`;return}
+  const jok=S.people.filter(p=>p.joker).map(p=>p.id);
   const rows=[];
   for(const d of weekdays())if(inRange(d))for(const sl of [1,2]){
-    const av=availFor(d,sl),cap=capacity(av.length),act=activeSess(d,sl).length;
-    if(cap>0||act>0)rows.push({d,sl,av,cap,act});
+    const av=availFor(d,sl),act=activeSess(d,sl);
+    if(blocked(d)){if(act.length)rows.push({d,sl,av,act,bl:true});continue}
+    if(av.some(id=>!isObs(id))||act.length)rows.push({d,sl,av,act});
   }
-  const missing=rows.reduce((n,r)=>n+Math.max(0,r.cap-r.act),0);
-  let html=`<div class="toolbar"><span class="hint grow">A slot is possible when at least two experimenters are available. At most ${S.config.labs||2} sessions (labs) per slot.</span>
-    <button class="primary" id="createAll" ${missing?"":"disabled"}>Create all possible (${missing})</button>
-    <button id="copyOrsee">Copy ORSEE list</button></div>`;
-  if(!rows.length){el.innerHTML=html+`<div class="card empty">No possible slots yet. Enter availability first: each slot needs two people.</div>`;return}
-  html+=`<div class="card tablewrap"><table><thead><tr><th>Date</th><th>Participant time</th><th>Available</th><th>Possible</th><th>Created</th><th></th></tr></thead><tbody>`;
+  // training overview
+  const cnt={};for(const p of S.people)cnt[p.id]={exp:0,obs:0,taught:0};
+  for(const s of S.sessions)if(s.status!=="abgesagt"){
+    for(const v of [s.vl1,s.vl2])if(v&&cnt[v])cnt[v].exp++;
+    for(const o of s.observers||[])if(cnt[o])cnt[o].obs++;
+    if(s.vl1&&s.vl2&&rank(s.vl1)===3&&rank(s.vl2)<3&&cnt[s.vl1])cnt[s.vl1].taught++;}
+  let html=`<div class="toolbar"><span class="hint grow"><b style="color:var(--ink)">Form pairs:</b> click two names in a slot, then «+ Session». The more experienced person becomes Experimenter 1. 🔴 people can only be added as observers 👀. Names already in a session of that slot are crossed out.</span>
+    <button id="copyOrsee">Copy ORSEE list</button></div>
+  <details class="card" style="padding:10px 12px"><summary style="cursor:pointer;font-weight:600">Training overview</summary>
+   <div class="tablewrap" style="margin-top:8px"><table class="train"><thead><tr><th>Person</th><th>Sessions as experimenter</th><th>as observer</th><th>taught someone</th></tr></thead><tbody>
+   ${S.people.map(p=>`<tr><td>${esc(lname(p.id))}${p.joker?" · jolly":""}</td><td class="num">${cnt[p.id].exp}</td><td class="num">${cnt[p.id].obs}</td><td class="num">${cnt[p.id].taught}</td></tr>`).join("")}
+   </tbody></table></div><p class="hint">Counts include planned sessions. When someone has gained experience, change their colour (🔴→🟠→🟢).</p></details>`;
+  if(!rows.length){el.innerHTML=html+`<div class="card empty">No possible slots yet. Enter availability first.</div>`;return}
+  html+=`<div class="card tablewrap"><table><thead><tr><th>Date</th><th>Participant time</th><th>Sessions</th><th>Choose people</th><th></th></tr></thead><tbody>`;
   let lastW=null;
   for(const r of rows){
-    const kw=isoWeek(pd(r.d));
-    if(kw!==lastW){html+=`<tr class="wkhead"><td colspan="6">Week ${kw}</td></tr>`;lastW=kw}
+    const kw=isoWeek(pd(r.d)),key=r.d+"|"+r.sl;
+    if(kw!==lastW){html+=`<tr class="wkhead"><td colspan="5">Week ${kw}</td></tr>`;lastW=kw}
+    const busy=busyIn(r.d,r.sl),pk=(S.pick[key]||[]).filter(id=>!busy.has(id));
+    const sess=r.act.slice().sort((a,b)=>a.lab-b.lab).map(s=>`<div class="pair"><span class="muted">Lab ${s.lab}</span>${s.vl1||s.vl2?`<b>${esc(lname(s.vl1))}</b> + <b>${esc(lname(s.vl2))}</b>`:'<span class="muted">no pair yet</span>'}${(s.observers||[]).length?`<span>👀 ${s.observers.map(o=>esc(pname(o))).join(", ")}</span>`:""}</div>`).join("")||'<span class="muted">–</span>';
+    const cand=[...r.av,...jok.filter(j=>!r.av.includes(j))];
+    const chips=r.bl?'<span class="warn">day blocked</span>':cand.map(id=>`<button class="pick${isObs(id)?" obs":""}" data-pick="${key}|${esc(id)}" aria-pressed="${pk.includes(id)}" ${busy.has(id)?"disabled":""}>${isObs(id)?"👀 ":""}${esc(lname(id))}${isJoker(id)?" · jolly":""}</button>`).join(" ");
+    const ex=pk.filter(id=>!isObs(id)),ob=pk.filter(isObs),lab=nextLab(r.d,r.sl);
+    let note="",can=false;
+    if(!r.bl){
+      if(!lab)note='<span class="muted" style="font-size:11px">all labs used</span>';
+      else if(ex.length===2){const[c,t]=pairNote(ex[0],ex[1]);note=`<span class="${c}">${esc(t)}${ob.length?" · 👀 "+ob.map(o=>esc(pname(o))).join(", "):""}</span>`;can=true}
+      else if(ex.length>2)note='<span class="warn">choose only 2 experimenters</span>';
+      else if(pk.length)note=`<span class="muted" style="font-size:11px">choose ${2-ex.length} more</span>`;
+    }
     html+=`<tr><td class="time">${dShort(r.d)}</td><td class="time">Slot ${r.sl} · ${SLOTS[r.sl].vp}</td>
-      <td><span class="chips">${r.av.map(id=>`<span class="chip" style="background:${pcolor(id)}">${esc(lname(id))}</span>`).join("")}</span></td>
-      <td class="num">${r.cap}</td><td class="num">${r.act}${r.act>r.cap?' <span class="warn">more than possible</span>':""}</td>
-      <td style="white-space:nowrap"><button data-addsess="${r.d}|${r.sl}" ${r.act>=r.cap?"disabled":""}>+ Session</button></td></tr>`;
+      <td>${sess}</td><td class="picks"><span class="chips" style="gap:4px">${chips}</span>${note}</td>
+      <td style="white-space:nowrap">${r.bl?"":`<button class="primary" data-mkpair="${key}" ${can?"":"disabled"}>+ Session</button>`}</td></tr>`;
   }
   el.innerHTML=html+`</tbody></table></div>`;
 }
@@ -282,16 +328,19 @@ function renderBook(){
   let html=`<div class="toolbar"><label>Status <select id="fStatus"><option value="alle">All</option>${STATUS.map(([k,v])=>`<option value="${k}" ${f===k?"selected":""}>${v}</option>`).join("")}</select></label>
    <span class="hint grow">Changes are saved immediately for everyone. A code is enough for the participant if you prefer not to store names.</span></div>`;
   if(!S.sessions.length){el.innerHTML=html+`<div class="card empty">No sessions yet. Create them under «2 · Slots for ORSEE».</div>`;return}
-  html+=`<div class="card tablewrap"><table><thead><tr><th>Date</th><th>Participant time</th><th>Lab</th><th>Status</th><th>Participant</th><th>Experimenter 1</th><th>Experimenter 2</th><th>Note</th><th></th></tr></thead><tbody>`;
+  html+=`<div class="card tablewrap"><table><thead><tr><th>Date</th><th>Participant time</th><th>Lab</th><th>Status</th><th>Participant</th><th>Experimenter 1</th><th>Experimenter 2</th><th>Observers 👀</th><th>Note</th><th></th></tr></thead><tbody>`;
   for(const s of list){
     const av=availFor(s.date,s.slot);
-    const opt=sel=>`<option value="">–</option>`+S.people.map(p=>`<option value="${esc(p.id)}" ${sel===p.id?"selected":""}>${esc(lname(p.id))}${av.includes(p.id)?"":" (not available)"}</option>`).join("");
-    const w1=s.vl1&&!av.includes(s.vl1),w2=s.vl2&&!av.includes(s.vl2),dup=s.vl1&&s.vl1===s.vl2;
+    const opt=sel=>`<option value="">–</option>`+S.people.map(p=>`<option value="${esc(p.id)}" ${sel===p.id?"selected":""}>${esc(lname(p.id))}${av.includes(p.id)||p.joker?"":" (not available)"}</option>`).join("");
+    const obs=s.observers||[];
+    const obsOpt=`<option value="">+ add</option>`+S.people.filter(p=>p.id!==s.vl1&&p.id!==s.vl2&&!obs.includes(p.id)).map(p=>`<option value="${esc(p.id)}">${esc(lname(p.id))}</option>`).join("");
+    const w1=s.vl1&&!av.includes(s.vl1)&&!isJoker(s.vl1),w2=s.vl2&&!av.includes(s.vl2)&&!isJoker(s.vl2),dup=s.vl1&&s.vl1===s.vl2;
     html+=`<tr data-id="${esc(s.id)}"><td class="time">${dShort(s.date)}</td><td class="time">${SLOTS[s.slot].vp}</td><td class="num">Lab ${s.lab}</td>
      <td><select data-f="status" aria-label="Status">${STATUS.map(([k,v])=>`<option value="${k}" ${s.status===k?"selected":""}>${v}</option>`).join("")}</select></td>
      <td><input data-f="subject" value="${esc(s.subject)}" placeholder="Name or code" aria-label="Participant"></td>
      <td><select data-f="vl1" aria-label="Experimenter 1">${opt(s.vl1)}</select>${w1?'<span class="warn">not marked as available</span>':""}</td>
      <td><select data-f="vl2" aria-label="Experimenter 2">${opt(s.vl2)}</select>${dup?'<span class="warn">same person twice</span>':w2?'<span class="warn">not marked as available</span>':""}</td>
+     <td><div class="obsl">${obs.map(o=>`<button class="ghost" data-obsdel="${esc(s.id)}|${esc(o)}" title="Remove">${esc(pname(o))} ✕</button>`).join("")}<select data-obsadd aria-label="Add observer" style="min-width:80px;width:auto">${obsOpt}</select></div></td>
      <td class="note"><input data-f="note" value="${esc(s.note)}" aria-label="Note"></td>
      <td style="white-space:nowrap">${S.deleting===s.id?`<span class="confirm"><button data-delyes="${esc(s.id)}">Delete</button><button class="ghost" data-delno>Cancel</button></span>`:`<button class="ghost" data-del="${esc(s.id)}" aria-label="Delete session">✕</button>`}</td></tr>`;
   }
@@ -309,9 +358,9 @@ addEventListener("hashchange",route);route();
 async function loadPeople(){const{data,error}=await client.from("mp_people").select("*").order("sort_order").order("name");if(error)throw error;S.people=data}
 async function loadAvail(){const{data,error}=await client.from("mp_avail").select("date,slot,person_id").limit(5000);if(error)throw error;S.avail=new Set(data.map(r=>r.date+"_"+r.slot+"_"+r.person_id))}
 async function loadSessions(){const{data,error}=await client.from("mp_sessions").select("*").limit(5000);if(error)throw error;
-  S.sessions=data.map(r=>({...r,vl1:r.vl1||"",vl2:r.vl2||""}))}
+  S.sessions=data.map(r=>({...r,vl1:r.vl1||"",vl2:r.vl2||"",observers:r.observers||[]}))}
 async function loadConfig(){const{data,error}=await client.from("mp_config").select("*").eq("id",1).maybeSingle();if(error)throw error;
-  if(data)S.config={start:data.start_day,end:data.end_day,labs:data.labs,target:data.target}}
+  if(data)S.config={start:data.start_day,end:data.end_day,labs:data.labs,target:data.target,blocked:data.blocked_days||[]}}
 const LOADERS={mp_people:loadPeople,mp_avail:loadAvail,mp_sessions:loadSessions,mp_config:loadConfig};
 async function reload(name){try{await LOADERS[name]();renderAll()}catch(e){toast(msg(e))}}
 function msg(e){const m=(e&&e.message)||String(e);if(e&&e.code==="23505")return"This entry already exists. The view has been refreshed.";return"Saving failed: "+m}
@@ -342,8 +391,20 @@ document.addEventListener("click",async e=>{
     if(S.avail.has(key))await run(client.from("mp_avail").delete().match({date:d,slot:Number(sl),person_id:S.selected}),"mp_avail");
     else await run(client.from("mp_avail").insert({date:d,slot:Number(sl),person_id:S.selected}),"mp_avail");
     return}
+  if(t.dataset.block){const d=t.dataset.block;const cur=S.config.blocked||[];const nb=cur.includes(d)?cur.filter(x=>x!==d):[...cur,d];t.disabled=true;
+    if(await run(client.from("mp_config").update({blocked_days:nb}).eq("id",1),"mp_config"))toast(cur.includes(d)?"Recordings allowed again on "+dShort(d):"No recordings on "+dShort(d));return}
+  if(t.dataset.pick){const[d,sl,id]=t.dataset.pick.split("|");const k=d+"|"+sl;const a=S.pick[k]||[];S.pick[k]=a.includes(id)?a.filter(x=>x!==id):[...a,id];renderSlots();return}
+  if(t.dataset.mkpair){const k=t.dataset.mkpair;const[d,slS]=k.split("|"),sl=Number(slS);const busy=busyIn(d,sl);
+    const pk=(S.pick[k]||[]).filter(id=>!busy.has(id));const ex=pk.filter(id=>!isObs(id)).sort((a,b)=>rank(b)-rank(a)),ob=pk.filter(isObs);
+    const lab=nextLab(d,sl);if(ex.length!==2||!lab)return;t.disabled=true;
+    const old=S.sessions.find(s=>s.date===d&&s.slot===sl&&s.lab===lab);
+    const row={status:"geplant",vl1:ex[0],vl2:ex[1],observers:ob};
+    const q=old?client.from("mp_sessions").update(row).eq("id",old.id):client.from("mp_sessions").insert({date:d,slot:sl,lab,...row});
+    if(await run(q,"mp_sessions")){delete S.pick[k];renderSlots();toast("Session created: "+pname(ex[0])+" + "+pname(ex[1]))}return}
+  if(t.dataset.obsdel){const[id,o]=t.dataset.obsdel.split("|");const s=S.sessions.find(x=>x.id===id);if(!s)return;
+    await run(client.from("mp_sessions").update({observers:(s.observers||[]).filter(x=>x!==o)}).eq("id",id),"mp_sessions");return}
   if(t.dataset.addsess){const[d,sl]=t.dataset.addsess.split("|");t.disabled=true;if(await createSession(d,Number(sl)))toast("Session created");return}
-  if(t.id==="createAll"){t.disabled=true;let n=0;
+  if(false){t.disabled=true;let n=0;
     for(const d of weekdays())if(inRange(d))for(const sl of [1,2]){
       while(activeSess(d,sl).length<capacity(availFor(d,sl).length)){if(!await createSession(d,sl,true))break;await loadSessions();n++}}
     renderAll();toast(n+" sessions created");return}
@@ -370,6 +431,8 @@ document.addEventListener("change",async e=>{
   if(t.id==="cfgStart"||t.id==="cfgEnd"){if(!t.value)return;
     await run(client.from("mp_config").update({[t.id==="cfgStart"?"start_day":"end_day"]:t.value}).eq("id",1),"mp_config");return}
   const tr=t.closest("tr[data-id]");
+  if(tr&&t.dataset.obsadd!==undefined&&t.value){const s=S.sessions.find(x=>x.id===tr.dataset.id);if(!s)return;
+    await run(client.from("mp_sessions").update({observers:[...(s.observers||[]),t.value]}).eq("id",s.id),"mp_sessions");return}
   if(tr&&t.dataset.f){let v=t.value;if((t.dataset.f==="vl1"||t.dataset.f==="vl2")&&!v)v=null;
     await run(client.from("mp_sessions").update({[t.dataset.f]:v}).eq("id",tr.dataset.id),"mp_sessions")}
 });
