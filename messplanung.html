@@ -162,7 +162,7 @@ td.picks{min-width:260px}
     <div>
       <div class="eyebrow">Sleep Intrusions · Resting EEG</div>
       <h1>Sleep Islands · Recording Schedule</h1>
-      <div class="muted">Slot 1: participant 08:30–09:45 (team 08:15–10:00) · Slot 2: participant 10:15–11:30 (team 10:00–12:00) · 2 experimenters per session · 🔴 people observe</div>
+      <div class="muted">Slot 1: participant 08:30–09:45 (team 08:15–10:00) · Slot 2: participant 10:15–11:30 (team 10:00–12:00) · 2 experimenters per session</div>
     </div>
     <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">
       <div class="who" id="who" hidden><span id="whoami"></span><button class="ghost" id="logoutBtn">Sign out</button></div>
@@ -223,16 +223,14 @@ const inRange=ds=>ds>=S.config.start&&ds<=S.config.end;
 const person=id=>S.people.find(p=>p.id===id);
 const pcolor=id=>{const i=S.people.findIndex(p=>p.id===id);return PCOL[(i<0?0:i)%PCOL.length]};
 const pname=id=>person(id)?.name||id||"";
-const LIGHT={red:"🔴",orange:"🟠",green:"🟢"};
-const light=id=>LIGHT[person(id)?.experience]||"";
-const lname=id=>{const l=light(id);return (l?l+" ":"")+pname(id)};
+const lname=id=>pname(id);
 const availFor=(date,slot)=>S.people.filter(p=>S.avail.has(date+"_"+slot+"_"+p.id)).map(p=>p.id);
 const capacity=n=>Math.min(S.config.labs||2,Math.floor(n/2));
 const blocked=d=>(S.config.blocked||[]).includes(d);
 const isJoker=id=>!!person(id)?.joker;
 const RANK={green:3,orange:2,red:1};
 const rank=id=>RANK[person(id)?.experience]||2;
-const isObs=id=>person(id)?.experience==="red";
+const isObs=id=>false;
 const busyIn=(d,sl)=>new Set(activeSess(d,sl).flatMap(s=>[s.vl1,s.vl2,...(s.observers||[])]).filter(Boolean));
 function pairNote(a,b){const ra=rank(a),rb=rank(b);
   if(ra===3&&rb===3)return['ok',"two experts"];
@@ -266,7 +264,7 @@ function renderAvail(){
     <label>From <input type="date" id="cfgStart" value="${esc(S.config.start)}"></label>
     <label>To <input type="date" id="cfgEnd" value="${esc(S.config.end)}"></label>
   </div>
-  <div class="legend"><span><i class="sw" style="background:var(--sunk)"></i>fewer than 2 people</span><span><i class="sw" style="background:var(--ok-soft)"></i>at least 2 people (1 session)</span><span><i class="sw" style="background:var(--ok-soft);border-color:var(--ok)"></i>4 people (2 labs in parallel)</span><span><span class="capdots"><i class="on"></i></span> free</span><span><span class="capdots"><i class="used"></i></span> session created</span><span>EEG recording experience: 🟢 a lot · 🟠 a little · 🔴 none</span><span>jolly = always available, no need to enter</span><span>«✕ rec» = no recordings that day</span></div>
+  <div class="legend"><span><i class="sw" style="background:var(--sunk)"></i>fewer than 2 people</span><span><i class="sw" style="background:var(--ok-soft)"></i>at least 2 people (1 session)</span><span><i class="sw" style="background:var(--ok-soft);border-color:var(--ok)"></i>4 people (2 labs in parallel)</span><span><span class="capdots"><i class="on"></i></span> free</span><span><span class="capdots"><i class="used"></i></span> session created</span><span>jolly = always available, no need to enter</span><span>«✕ rec» = no recordings that day</span></div>
   <p class="hint">${S.selected?`Click a slot to switch <b>${esc(pname(S.selected))}</b>'s availability on or off.`:"Choose a person above to enter their availability."}</p>`;
   const days=weekdays();const weeks=[];
   for(let i=0;i<days.length;i+=5)weeks.push(days.slice(i,i+5));
@@ -292,15 +290,18 @@ function renderAvail(){
 }
 
 function trainingHTML(){
-  const cnt={};for(const p of S.people)cnt[p.id]={exp:0,obs:0,taught:0};
-  for(const s of S.sessions)if(s.status!=="abgesagt"){
-    for(const v of [s.vl1,s.vl2])if(v&&cnt[v])cnt[v].exp++;
-    for(const o of s.observers||[])if(cnt[o])cnt[o].obs++;
-    if(s.vl1&&s.vl2&&rank(s.vl1)===3&&rank(s.vl2)<3&&cnt[s.vl1])cnt[s.vl1].taught++;}
-  return `<details class="card" style="padding:10px 12px"${trainingHTML.open?" open":""} id="trainBox"><summary style="cursor:pointer;font-weight:600">Training overview</summary>
-   <div class="tablewrap" style="margin-top:8px"><table class="train"><thead><tr><th>Person</th><th>Sessions as experimenter</th><th>as observer</th><th>taught someone</th></tr></thead><tbody>
-   ${S.people.map(p=>`<tr><td>${esc(lname(p.id))}${p.joker?" · jolly":""}</td><td class="num">${cnt[p.id].exp}</td><td class="num">${cnt[p.id].obs}</td><td class="num">${cnt[p.id].taught}</td></tr>`).join("")}
-   </tbody></table></div><p class="hint">Counts include planned sessions. When someone has gained experience, change their colour (🔴→🟠→🟢).</p></details>`;
+  const today=new Date().toLocaleDateString("sv-SE",{timeZone:"Europe/Zurich"});
+  const st={};for(const p of S.people)st[p.id]={man:0,auto:0,done:0,next:""};
+  for(const s of S.sessions)if(s.status!=="abgesagt")for(const id of new Set([s.vl1,s.vl2,...(s.observers||[])].filter(Boolean)))if(st[id]){
+    if(/^auto/.test(s.note||""))st[id].auto++;else st[id].man++;
+    if(s.status==="durchgefuehrt")st[id].done++;
+    if(s.date>=today&&(!st[id].next||s.date<st[id].next))st[id].next=s.date;}
+  const rows=S.people.map(p=>({p,t:st[p.id].man+st[p.id].auto,...st[p.id]})).sort((a,b)=>b.t-a.t);
+  const mx=Math.max(1,...rows.map(r=>r.t));
+  return `<details class="card" style="padding:10px 12px" open id="trainBox"><summary style="cursor:pointer;font-weight:600">Who records how often</summary>
+   <div class="tablewrap" style="margin-top:8px"><table class="train"><thead><tr><th>Person</th><th>Prepared by hand</th><th>Auto-planned</th><th>Total</th><th style="width:30%"></th><th>Done</th><th>Next session</th></tr></thead><tbody>
+   ${rows.map(r=>`<tr><td>${esc(pname(r.p.id))}${r.p.joker?" · jolly":""}</td><td class="num">${r.man}</td><td class="num">${r.auto}</td><td class="num"><b>${r.t}</b></td><td><div class="bar" style="height:8px"><i style="width:${r.t/mx*100}%;background:var(--accent)"></i></div></td><td class="num">${r.done}</td><td class="time">${r.next?dShort(r.next):"–"}</td></tr>`).join("")}
+   </tbody></table></div><p class="hint">Counts every planned, booked or done session in which the person is present (cancelled sessions are not counted). «Auto-planned» = sessions with the note «auto».</p></details>`;
 }
 function chipHTML(d,sl,id,lab){
   const g=S.grab,gr=g&&g.d===d&&g.sl===sl&&g.id===id;
@@ -312,9 +313,9 @@ function renderSlots(){
   if(!S.ready){el.innerHTML=`<div class="card empty">Loading data …</div>`;return}
   const jok=S.people.filter(p=>p.joker).map(p=>p.id),g=S.grab,L=S.config.labs||2;
   const todayStr=new Date().toLocaleDateString("sv-SE",{timeZone:"Europe/Zurich"});
-  let html=`<div class="toolbar"><span class="hint grow"><b style="color:var(--ink)">Drag a name into Lab 1 or Lab 2</b> — or click the name, then click the lab. Drag it to the other lab to move it, ✕ or drag back to the names to remove it. 🔴 people join as observers 👀. A lab becomes a session for ORSEE once it has 2 experimenters; the more experienced one is Experimenter 1.</span>
+  let html=`<div class="toolbar"><span class="hint grow"><b style="color:var(--ink)">Drag a name into Lab 1 or Lab 2</b> — or click the name, then click the lab. Drag it to the other lab to move it, ✕ or drag back to the names to remove it. A lab becomes a session for ORSEE once it has 2 people; a third person can join as extra.</span>
     <button id="copyOrsee">Copy ORSEE list</button></div>${trainingHTML()}
-   <div class="legend"><span><i class="sw" style="border-style:dashed"></i>empty lab</span><span><i class="sw" style="border-color:var(--warn)"></i>1 experimenter</span><span><i class="sw" style="background:var(--ok-soft);border-color:var(--ok)"></i>ready (2 experimenters)</span><span>J = jolly (always available)</span><span>🟢 a lot · 🟠 a little · 🔴 none</span></div>
+   <div class="legend"><span><i class="sw" style="border-style:dashed"></i>empty lab</span><span><i class="sw" style="border-color:var(--warn)"></i>1 person</span><span><i class="sw" style="background:var(--ok-soft);border-color:var(--ok)"></i>ready (2 people)</span><span>J = jolly (always available)</span></div>
    ${g?`<p class="notice" style="margin:0">Moving <b>${esc(pname(g.id))}</b>: click Lab 1 or Lab 2 in the same slot${g.lab?", or the names above the labs to remove":""}. Esc cancels.</p>`:""}`;
   const days=weekdays();const weeks=[];for(let i=0;i<days.length;i+=5)weeks.push(days.slice(i,i+5));
   if(!weeks.length)html+=`<div class="card empty">No valid period. Set «From» and «To» under «1 · Availability».</div>`;
@@ -335,9 +336,8 @@ function renderSlots(){
           const s=ss.find(x=>x.lab===l);const ex=s?[s.vl1,s.vl2].filter(Boolean):[],ob=s?(s.observers||[]):[];
           const cls=ex.length>=2?"full":ex.length===1?"part":"";
           let note="";
-          if(ex.length===2){const[c,t]=pairNote(ex[0],ex[1]);note=`<span class="lnote" style="color:var(--${c==="ok"?"ok":"warn"})">${esc(t)}</span>`}
-          else if(ex.length===1)note=`<span class="lnote" style="color:var(--warn)">needs 1 more</span>`;
-          else if(ob.length)note=`<span class="lnote" style="color:var(--warn)">needs 2 experimenters</span>`;
+          if(ex.length===1)note=`<span class="lnote" style="color:var(--warn)">needs 1 more</span>`;
+          
           const st=s&&s.status!=="geplant"?` · ${esc((STATUS.find(x=>x[0]===s.status)||[,""])[1])}`:"";
           const warnAv=ex.concat(ob).filter(id=>!av.includes(id)&&!isJoker(id));
           html+=`<div class="lab ${cls}${here&&g.lab!==l?" target":""}" data-lab="${d}|${sl}|${l}"><span class="labh"><span>Lab ${l}${st}</span>${s&&s.subject?`<span title="participant">👤</span>`:""}</span>
@@ -355,7 +355,7 @@ function renderSlots(){
 async function placePerson(d,sl,id,from,to){
   if(from===to)return;
   const sess=l=>activeSess(d,sl).find(x=>x.lab===l);
-  if(to&&!isObs(id)){const t=sess(to);if(t&&t.vl1&&t.vl2){toast(`Lab ${to} already has 2 experimenters`);return}}
+  if(to){const t=sess(to);if(t&&t.vl1&&t.vl2&&(t.observers||[]).length>=1){toast(`Lab ${to} already has 3 people`);return}}
   let tgt=null;
   if(to){let s=sess(to);
     if(!s){const old=S.sessions.find(x=>x.date===d&&x.slot===sl&&x.lab===to);
@@ -367,8 +367,8 @@ async function placePerson(d,sl,id,from,to){
     tgt=s}
 
   if(from){const s=sess(from);if(s){
-    const keep=[s.vl1,s.vl2].filter(v=>v&&v!==id);
-    const upd={vl1:keep[0]||null,vl2:keep[1]||null,observers:(s.observers||[]).filter(x=>x!==id)};
+    const all=[s.vl1,s.vl2,...(s.observers||[])].filter(v=>v&&v!==id);
+    const upd={vl1:all[0]||null,vl2:all[1]||null,observers:all.slice(2)};
     const empty=!upd.vl1&&!upd.observers.length&&!s.subject&&!s.note&&s.status==="geplant";
     const{error}=empty?await client.from("mp_sessions").delete().eq("id",s.id):await client.from("mp_sessions").update(upd).eq("id",s.id);
     if(error){toast(msg(error));await reload("mp_sessions");return}
@@ -376,8 +376,8 @@ async function placePerson(d,sl,id,from,to){
   }}
   if(to){const s=tgt;
     let upd;
-    if(isObs(id))upd={observers:[...(s.observers||[]).filter(x=>x!==id),id]};
-    else{const ex=[s.vl1,s.vl2].filter(Boolean).concat(id).sort((a,b)=>rank(b)-rank(a));upd={vl1:ex[0]||null,vl2:ex[1]||null}}
+    if(s.vl1&&s.vl2)upd={observers:[...(s.observers||[]).filter(x=>x!==id),id]};
+    else{const ex=[s.vl1,s.vl2].filter(Boolean).concat(id);upd={vl1:ex[0]||null,vl2:ex[1]||null}}
     const{error}=await client.from("mp_sessions").update(upd).eq("id",s.id);if(error)toast(msg(error));
   }
   await reload("mp_sessions");
@@ -406,7 +406,7 @@ function renderBook(){
   let html=`<div class="toolbar"><label>Status <select id="fStatus"><option value="alle">All</option>${STATUS.map(([k,v])=>`<option value="${k}" ${f===k?"selected":""}>${v}</option>`).join("")}</select></label>
    <span class="hint grow">Changes are saved immediately for everyone. A code is enough for the participant if you prefer not to store names.</span></div>`;
   if(!S.sessions.length){el.innerHTML=html+`<div class="card empty">No sessions yet. Create them under «2 · Slots for ORSEE».</div>`;return}
-  html+=`<div class="card tablewrap"><table><thead><tr><th>Date</th><th>Participant time</th><th>Lab</th><th>Status</th><th>Participant</th><th>Experimenter 1</th><th>Experimenter 2</th><th>Observers 👀</th><th>Note</th><th></th></tr></thead><tbody>`;
+  html+=`<div class="card tablewrap"><table><thead><tr><th>Date</th><th>Participant time</th><th>Lab</th><th>Status</th><th>Participant</th><th>Experimenter 1</th><th>Experimenter 2</th><th>Also present</th><th>Note</th><th></th></tr></thead><tbody>`;
   for(const s of list){
     const av=availFor(s.date,s.slot);
     const opt=sel=>`<option value="">–</option>`+S.people.map(p=>`<option value="${esc(p.id)}" ${sel===p.id?"selected":""}>${esc(lname(p.id))}${av.includes(p.id)||p.joker?"":" (not available)"}</option>`).join("");
@@ -418,7 +418,7 @@ function renderBook(){
      <td><input data-f="subject" value="${esc(s.subject)}" placeholder="Name or code" aria-label="Participant"></td>
      <td><select data-f="vl1" aria-label="Experimenter 1">${opt(s.vl1)}</select>${w1?'<span class="warn">not marked as available</span>':""}</td>
      <td><select data-f="vl2" aria-label="Experimenter 2">${opt(s.vl2)}</select>${dup?'<span class="warn">same person twice</span>':w2?'<span class="warn">not marked as available</span>':""}</td>
-     <td><div class="obsl">${obs.map(o=>`<button class="ghost" data-obsdel="${esc(s.id)}|${esc(o)}" title="Remove">${esc(pname(o))} ✕</button>`).join("")}<select data-obsadd aria-label="Add observer" style="min-width:80px;width:auto">${obsOpt}</select></div></td>
+     <td><div class="obsl">${obs.map(o=>`<button class="ghost" data-obsdel="${esc(s.id)}|${esc(o)}" title="Remove">${esc(pname(o))} ✕</button>`).join("")}<select data-obsadd aria-label="Add person" style="min-width:80px;width:auto">${obsOpt}</select></div></td>
      <td class="note"><input data-f="note" value="${esc(s.note)}" aria-label="Note"></td>
      <td style="white-space:nowrap">${S.deleting===s.id?`<span class="confirm"><button data-delyes="${esc(s.id)}">Delete</button><button class="ghost" data-delno>Cancel</button></span>`:`<button class="ghost" data-del="${esc(s.id)}" aria-label="Delete session">✕</button>`}</td></tr>`;
   }
