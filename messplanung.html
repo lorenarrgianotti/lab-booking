@@ -127,6 +127,25 @@ td.note input{min-width:140px}
 td.picks{min-width:260px}
 .obsl{display:flex;flex-wrap:wrap;gap:3px;align-items:center}
 .obsl button{font-size:11px;padding:1px 6px}
+.sbox{border:1px solid var(--line);border-radius:8px;padding:6px;background:var(--sunk);display:flex;flex-direction:column;gap:5px;min-width:0}
+.sbox .row{display:flex;justify-content:space-between;font-size:11px;color:var(--muted)}
+.pool{min-height:24px;display:flex;flex-wrap:wrap;gap:3px;padding:3px;border-radius:6px;border:1px dashed transparent}
+.pool.target{border-color:var(--muted)}
+.lab{border:1px dashed var(--line);border-radius:6px;padding:4px 5px;min-height:38px;background:var(--surface);display:flex;flex-direction:column;gap:3px;cursor:default}
+.lab.part{border-style:solid;border-color:var(--warn)}
+.lab.full{border-style:solid;border-color:var(--ok);background:var(--ok-soft)}
+.lab.target{outline:2px solid var(--accent);outline-offset:1px;cursor:pointer}
+.lab.over,.pool.over{background:color-mix(in srgb,var(--accent) 14%,var(--surface))}
+.labh{font-size:10px;font-weight:600;color:var(--muted);display:flex;justify-content:space-between;gap:4px;letter-spacing:.04em;text-transform:uppercase}
+.lab .lchips{display:flex;flex-wrap:wrap;gap:3px}
+.lab .lnote{font-size:10px}
+.pc{display:inline-flex;align-items:center;border-radius:5px;max-width:100%}
+.pc[draggable="true"]{cursor:grab}
+.pchip{font-size:11px;font-weight:600;padding:1px 6px;border-radius:5px;border:0;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.pchip.obs{opacity:.85;font-style:italic}
+.pchip.grabbed{outline:2px solid var(--ink);outline-offset:1px}
+.pc .x{font-size:10px;line-height:1;padding:2px 3px;border:0;background:transparent;color:var(--muted)}
+.day.blocked .sbox{background:repeating-linear-gradient(45deg,var(--sunk),var(--sunk) 6px,var(--surface) 6px,var(--surface) 12px)}
 @media (prefers-reduced-motion:no-preference){.slotbox{transition:box-shadow .15s}}
 </style>
 <style>
@@ -183,7 +202,7 @@ const SLOTS={1:{vp:"08:30–09:45",team:"08:15–10:00"},2:{vp:"10:15–11:30",t
 const STATUS=[["geplant","Planned"],["orsee","In ORSEE"],["gebucht","Booked"],["durchgefuehrt","Done"],["abgesagt","Cancelled"]];
 const WD=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 const PCOL=["var(--p1)","var(--p2)","var(--p3)","var(--p4)","var(--p5)","var(--p6)"];
-const S={ready:false,people:[],avail:new Set(),sessions:[],config:{start:"2026-11-16",end:"2026-12-18",labs:2,target:50,blocked:[]},pick:{},selected:null,deleting:null,channel:null};
+const S={ready:false,people:[],avail:new Set(),sessions:[],config:{start:"2026-11-16",end:"2026-12-18",labs:2,target:50,blocked:[]},pick:{},grab:null,selected:null,deleting:null,channel:null};
 const client=supabase.createClient(CONFIG.supabaseUrl,CONFIG.supabaseAnonKey);
 
 const $=s=>document.querySelector(s);
@@ -272,52 +291,111 @@ function renderAvail(){
   el.innerHTML=html;
 }
 
-function renderSlots(){
-  const el=$("#tab-slots");
-  if(!S.ready){el.innerHTML=`<div class="card empty">Loading data …</div>`;return}
-  const jok=S.people.filter(p=>p.joker).map(p=>p.id);
-  const rows=[];
-  for(const d of weekdays())if(inRange(d))for(const sl of [1,2]){
-    const av=availFor(d,sl),act=activeSess(d,sl);
-    if(blocked(d)){if(act.length)rows.push({d,sl,av,act,bl:true});continue}
-    if(av.some(id=>!isObs(id))||act.length)rows.push({d,sl,av,act});
-  }
-  // training overview
+function trainingHTML(){
   const cnt={};for(const p of S.people)cnt[p.id]={exp:0,obs:0,taught:0};
   for(const s of S.sessions)if(s.status!=="abgesagt"){
     for(const v of [s.vl1,s.vl2])if(v&&cnt[v])cnt[v].exp++;
     for(const o of s.observers||[])if(cnt[o])cnt[o].obs++;
     if(s.vl1&&s.vl2&&rank(s.vl1)===3&&rank(s.vl2)<3&&cnt[s.vl1])cnt[s.vl1].taught++;}
-  let html=`<div class="toolbar"><span class="hint grow"><b style="color:var(--ink)">Form pairs:</b> click two names in a slot, then «+ Session». The more experienced person becomes Experimenter 1. 🔴 people can only be added as observers 👀. Names already in a session of that slot are crossed out.</span>
-    <button id="copyOrsee">Copy ORSEE list</button></div>
-  <details class="card" style="padding:10px 12px"><summary style="cursor:pointer;font-weight:600">Training overview</summary>
+  return `<details class="card" style="padding:10px 12px"${trainingHTML.open?" open":""} id="trainBox"><summary style="cursor:pointer;font-weight:600">Training overview</summary>
    <div class="tablewrap" style="margin-top:8px"><table class="train"><thead><tr><th>Person</th><th>Sessions as experimenter</th><th>as observer</th><th>taught someone</th></tr></thead><tbody>
    ${S.people.map(p=>`<tr><td>${esc(lname(p.id))}${p.joker?" · jolly":""}</td><td class="num">${cnt[p.id].exp}</td><td class="num">${cnt[p.id].obs}</td><td class="num">${cnt[p.id].taught}</td></tr>`).join("")}
    </tbody></table></div><p class="hint">Counts include planned sessions. When someone has gained experience, change their colour (🔴→🟠→🟢).</p></details>`;
-  if(!rows.length){el.innerHTML=html+`<div class="card empty">No possible slots yet. Enter availability first.</div>`;return}
-  html+=`<div class="card tablewrap"><table><thead><tr><th>Date</th><th>Participant time</th><th>Sessions</th><th>Choose people</th><th></th></tr></thead><tbody>`;
-  let lastW=null;
-  for(const r of rows){
-    const kw=isoWeek(pd(r.d)),key=r.d+"|"+r.sl;
-    if(kw!==lastW){html+=`<tr class="wkhead"><td colspan="5">Week ${kw}</td></tr>`;lastW=kw}
-    const busy=busyIn(r.d,r.sl),pk=(S.pick[key]||[]).filter(id=>!busy.has(id));
-    const sess=r.act.slice().sort((a,b)=>a.lab-b.lab).map(s=>`<div class="pair"><span class="muted">Lab ${s.lab}</span>${s.vl1||s.vl2?`<b>${esc(lname(s.vl1))}</b> + <b>${esc(lname(s.vl2))}</b>`:'<span class="muted">no pair yet</span>'}${(s.observers||[]).length?`<span>👀 ${s.observers.map(o=>esc(pname(o))).join(", ")}</span>`:""}</div>`).join("")||'<span class="muted">–</span>';
-    const cand=[...r.av,...jok.filter(j=>!r.av.includes(j))];
-    const chips=r.bl?'<span class="warn">day blocked</span>':cand.map(id=>`<button class="pick${isObs(id)?" obs":""}" data-pick="${key}|${esc(id)}" aria-pressed="${pk.includes(id)}" ${busy.has(id)?"disabled":""}>${isObs(id)?"👀 ":""}${esc(lname(id))}${isJoker(id)?" · jolly":""}</button>`).join(" ");
-    const ex=pk.filter(id=>!isObs(id)),ob=pk.filter(isObs),lab=nextLab(r.d,r.sl);
-    let note="",can=false;
-    if(!r.bl){
-      if(!lab)note='<span class="muted" style="font-size:11px">all labs used</span>';
-      else if(ex.length===2){const[c,t]=pairNote(ex[0],ex[1]);note=`<span class="${c}">${esc(t)}${ob.length?" · 👀 "+ob.map(o=>esc(pname(o))).join(", "):""}</span>`;can=true}
-      else if(ex.length>2)note='<span class="warn">choose only 2 experimenters</span>';
-      else if(pk.length)note=`<span class="muted" style="font-size:11px">choose ${2-ex.length} more</span>`;
-    }
-    html+=`<tr><td class="time">${dShort(r.d)}</td><td class="time">Slot ${r.sl} · ${SLOTS[r.sl].vp}</td>
-      <td>${sess}</td><td class="picks"><span class="chips" style="gap:4px">${chips}</span>${note}</td>
-      <td style="white-space:nowrap">${r.bl?"":`<button class="primary" data-mkpair="${key}" ${can?"":"disabled"}>+ Session</button>`}</td></tr>`;
-  }
-  el.innerHTML=html+`</tbody></table></div>`;
 }
+function chipHTML(d,sl,id,lab){
+  const g=S.grab,gr=g&&g.d===d&&g.sl===sl&&g.id===id;
+  const data=`${d}|${sl}|${esc(id)}|${lab||0}`;
+  return `<span class="pc" draggable="true" data-drag="${data}"><button class="pchip${isObs(id)?" obs":""}${gr?" grabbed":""}" style="background:${pcolor(id)}" data-grab="${data}" title="${isObs(id)?"observer · ":""}drag or click to move">${isObs(id)?"👀 ":""}${esc(lname(id))}${isJoker(id)?" · J":""}</button>${lab?`<button class="x" data-rm="${data}" aria-label="Remove ${esc(pname(id))}">✕</button>`:""}</span>`;
+}
+function renderSlots(){
+  const el=$("#tab-slots");
+  if(!S.ready){el.innerHTML=`<div class="card empty">Loading data …</div>`;return}
+  const jok=S.people.filter(p=>p.joker).map(p=>p.id),g=S.grab,L=S.config.labs||2;
+  const todayStr=new Date().toLocaleDateString("sv-SE",{timeZone:"Europe/Zurich"});
+  let html=`<div class="toolbar"><span class="hint grow"><b style="color:var(--ink)">Drag a name into Lab 1 or Lab 2</b> — or click the name, then click the lab. Drag it to the other lab to move it, ✕ or drag back to the names to remove it. 🔴 people join as observers 👀. A lab becomes a session for ORSEE once it has 2 experimenters; the more experienced one is Experimenter 1.</span>
+    <button id="copyOrsee">Copy ORSEE list</button></div>${trainingHTML()}
+   <div class="legend"><span><i class="sw" style="border-style:dashed"></i>empty lab</span><span><i class="sw" style="border-color:var(--warn)"></i>1 experimenter</span><span><i class="sw" style="background:var(--ok-soft);border-color:var(--ok)"></i>ready (2 experimenters)</span><span>J = jolly (always available)</span><span>🟢 a lot · 🟠 a little · 🔴 none</span></div>
+   ${g?`<p class="notice" style="margin:0">Moving <b>${esc(pname(g.id))}</b>: click Lab 1 or Lab 2 in the same slot${g.lab?", or the names above the labs to remove":""}. Esc cancels.</p>`:""}`;
+  const days=weekdays();const weeks=[];for(let i=0;i<days.length;i+=5)weeks.push(days.slice(i,i+5));
+  if(!weeks.length)html+=`<div class="card empty">No valid period. Set «From» and «To» under «1 · Availability».</div>`;
+  for(const w of weeks){
+    html+=`<div class="week"><h3>Week ${isoWeek(pd(w[0]))} <span class="muted" style="font-family:var(--f-body);font-weight:400;font-size:12px">${dShort(w[0])} – ${dShort(w[w.length-1])}</span></h3><div class="days">`;
+    for(const d of w){
+      const out=!inRange(d),bl=blocked(d);
+      html+=`<div class="day${out?" out":""}${bl?" blocked":""}"><div class="dname"><span>${dShort(d)}${bl?' · <span style="color:var(--bad)">no recordings</span>':""}</span></div>`;
+      for(const sl of [1,2]){
+        const ss=activeSess(d,sl),placed=busyIn(d,sl);
+        if(out||((bl||d<todayStr)&&!ss.length)){html+=`<div class="sbox"><span class="row"><span>Slot ${sl} · ${SLOTS[sl].team}</span></span></div>`;continue}
+        const av=availFor(d,sl);
+        const pool=[...av,...jok.filter(j=>!av.includes(j))].filter(id=>!placed.has(id));
+        const here=g&&g.d===d&&g.sl===sl;
+        html+=`<div class="sbox"><span class="row"><span>Slot ${sl} · ${SLOTS[sl].team}</span></span>
+          <div class="pool${here&&g.lab?" target":""}" data-pool="${d}|${sl}">${pool.map(id=>chipHTML(d,sl,id,0)).join("")||'<span class="hint" style="font-size:11px">–</span>'}</div>`;
+        for(let l=1;l<=L;l++){
+          const s=ss.find(x=>x.lab===l);const ex=s?[s.vl1,s.vl2].filter(Boolean):[],ob=s?(s.observers||[]):[];
+          const cls=ex.length>=2?"full":ex.length===1?"part":"";
+          let note="";
+          if(ex.length===2){const[c,t]=pairNote(ex[0],ex[1]);note=`<span class="lnote" style="color:var(--${c==="ok"?"ok":"warn"})">${esc(t)}</span>`}
+          else if(ex.length===1)note=`<span class="lnote" style="color:var(--warn)">needs 1 more</span>`;
+          else if(ob.length)note=`<span class="lnote" style="color:var(--warn)">needs 2 experimenters</span>`;
+          const st=s&&s.status!=="geplant"?` · ${esc((STATUS.find(x=>x[0]===s.status)||[,""])[1])}`:"";
+          const warnAv=ex.concat(ob).filter(id=>!av.includes(id)&&!isJoker(id));
+          html+=`<div class="lab ${cls}${here&&g.lab!==l?" target":""}" data-lab="${d}|${sl}|${l}"><span class="labh"><span>Lab ${l}${st}</span>${s&&s.subject?`<span title="participant">👤</span>`:""}</span>
+            <span class="lchips">${ex.concat(ob).map(id=>chipHTML(d,sl,id,l)).join("")}</span>${note}${warnAv.length?`<span class="lnote" style="color:var(--warn)">${warnAv.map(pname).join(", ")}: not marked as available</span>`:""}</div>`;
+        }
+        html+=`</div>`;
+      }
+      html+=`</div>`;
+    }
+    html+=`</div></div>`;
+  }
+  el.innerHTML=html;
+}
+
+async function placePerson(d,sl,id,from,to){
+  if(from===to)return;
+  const sess=l=>activeSess(d,sl).find(x=>x.lab===l);
+  if(to&&!isObs(id)){const t=sess(to);if(t&&t.vl1&&t.vl2){toast(`Lab ${to} already has 2 experimenters`);return}}
+  let tgt=null;
+  if(to){let s=sess(to);
+    if(!s){const old=S.sessions.find(x=>x.date===d&&x.slot===sl&&x.lab===to);
+      const row={status:"geplant",vl1:null,vl2:null,observers:[]};
+      const r=old?await client.from("mp_sessions").update(row).eq("id",old.id).select().single()
+                 :await client.from("mp_sessions").insert({date:d,slot:sl,lab:to,...row}).select().single();
+      if(r.error){toast(msg(r.error));await reload("mp_sessions");return}
+      s={...r.data,vl1:"",vl2:"",observers:[]};S.sessions=S.sessions.filter(x=>x.id!==s.id).concat(s)}
+    tgt=s}
+
+  if(from){const s=sess(from);if(s){
+    const keep=[s.vl1,s.vl2].filter(v=>v&&v!==id);
+    const upd={vl1:keep[0]||null,vl2:keep[1]||null,observers:(s.observers||[]).filter(x=>x!==id)};
+    const empty=!upd.vl1&&!upd.observers.length&&!s.subject&&!s.note&&s.status==="geplant";
+    const{error}=empty?await client.from("mp_sessions").delete().eq("id",s.id):await client.from("mp_sessions").update(upd).eq("id",s.id);
+    if(error){toast(msg(error));await reload("mp_sessions");return}
+    if(empty)S.sessions=S.sessions.filter(x=>x!==s);else Object.assign(s,{...upd,vl1:upd.vl1||"",vl2:upd.vl2||""});
+  }}
+  if(to){const s=tgt;
+    let upd;
+    if(isObs(id))upd={observers:[...(s.observers||[]).filter(x=>x!==id),id]};
+    else{const ex=[s.vl1,s.vl2].filter(Boolean).concat(id).sort((a,b)=>rank(b)-rank(a));upd={vl1:ex[0]||null,vl2:ex[1]||null}}
+    const{error}=await client.from("mp_sessions").update(upd).eq("id",s.id);if(error)toast(msg(error));
+  }
+  await reload("mp_sessions");
+}
+function parseRef(v){const[d,sl,id,lab]=v.split("|");return{d,sl:Number(sl),id,lab:Number(lab)}}
+document.addEventListener("dragstart",e=>{const c=e.target.closest&&e.target.closest("[data-drag]");if(!c)return;
+  S.grab=parseRef(c.dataset.drag);e.dataTransfer.setData("text/plain",c.dataset.drag);e.dataTransfer.effectAllowed="move"});
+document.addEventListener("dragover",e=>{const z=e.target.closest&&e.target.closest("[data-lab],[data-pool]");if(!z||!S.grab)return;
+  const[d,sl]=(z.dataset.lab||z.dataset.pool).split("|");if(d!==S.grab.d||Number(sl)!==S.grab.sl)return;
+  e.preventDefault();document.querySelectorAll(".over").forEach(x=>x!==z&&x.classList.remove("over"));z.classList.add("over")});
+document.addEventListener("dragleave",e=>{const z=e.target.closest&&e.target.closest(".over");if(z&&!z.contains(e.relatedTarget))z.classList.remove("over")});
+document.addEventListener("dragend",()=>{document.querySelectorAll(".over").forEach(x=>x.classList.remove("over"))});
+document.addEventListener("drop",async e=>{const z=e.target.closest&&e.target.closest("[data-lab],[data-pool]");if(!z||!S.grab)return;e.preventDefault();
+  const g=S.grab;S.grab=null;const[d,sl,l]=(z.dataset.lab||z.dataset.pool).split("|");
+  if(d!==g.d||Number(sl)!==g.sl){renderSlots();return}
+  await placePerson(g.d,g.sl,g.id,g.lab,z.dataset.lab?Number(l):0)});
+document.addEventListener("keydown",e=>{if(e.key==="Escape"&&S.grab){S.grab=null;renderSlots()}});
+document.addEventListener("toggle",e=>{if(e.target.id==="trainBox")trainingHTML.open=e.target.open},true);
 
 function renderBook(){
   const el=$("#tab-buchungen");
@@ -385,7 +463,13 @@ async function createSession(d,sl,quiet){
 }
 
 document.addEventListener("click",async e=>{
+  if(S.ready&&S.grab&&!e.target.closest("button")){const z=e.target.closest("[data-lab],[data-pool]");
+    if(z){const g=S.grab;const[d,sl,l]=(z.dataset.lab||z.dataset.pool).split("|");
+      if(d===g.d&&Number(sl)===g.sl){S.grab=null;await placePerson(g.d,g.sl,g.id,g.lab,z.dataset.lab?Number(l):0);return}}}
   const t=e.target.closest("button");if(!t||!S.ready)return;
+  if(t.dataset.grab){const r=parseRef(t.dataset.grab);const g=S.grab;
+    S.grab=(g&&g.d===r.d&&g.sl===r.sl&&g.id===r.id)?null:r;renderSlots();return}
+  if(t.dataset.rm){const r=parseRef(t.dataset.rm);S.grab=null;await placePerson(r.d,r.sl,r.id,r.lab,0);return}
   if(t.dataset.sel){S.selected=S.selected===t.dataset.sel?null:t.dataset.sel;renderAvail();return}
   if(t.dataset.toggle){const[d,sl]=t.dataset.toggle.split("|");const key=`${d}_${sl}_${S.selected}`;t.disabled=true;
     if(S.avail.has(key))await run(client.from("mp_avail").delete().match({date:d,slot:Number(sl),person_id:S.selected}),"mp_avail");
@@ -409,9 +493,9 @@ document.addEventListener("click",async e=>{
       while(activeSess(d,sl).length<capacity(availFor(d,sl).length)){if(!await createSession(d,sl,true))break;await loadSessions();n++}}
     renderAll();toast(n+" sessions created");return}
   if(t.id==="copyOrsee"){const key=s=>s.date+s.slot+s.lab;
-    const lines=S.sessions.filter(s=>s.status==="geplant"||s.status==="orsee").sort((a,b)=>key(a).localeCompare(key(b)))
+    const lines=S.sessions.filter(s=>(s.status==="geplant"||s.status==="orsee")&&s.vl1&&s.vl2).sort((a,b)=>key(a).localeCompare(key(b)))
       .map(s=>`${dLong(s.date)}\t${SLOTS[s.slot].vp}\tLab ${s.lab}`).join("\n");
-    if(!lines){toast("No planned sessions to copy.");return}
+    if(!lines){toast("No complete sessions (2 experimenters) to copy.");return}
     try{await navigator.clipboard.writeText(lines);toast("List copied ("+lines.split("\n").length+" sessions)")}catch{toast("Copying is not possible in this browser.")}
     return}
   if(t.dataset.del){S.deleting=t.dataset.del;renderBook();return}
