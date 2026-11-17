@@ -189,6 +189,9 @@ const inRange=ds=>ds>=S.config.start&&ds<=S.config.end;
 const person=id=>S.people.find(p=>p.id===id);
 const pcolor=id=>{const i=S.people.findIndex(p=>p.id===id);return PCOL[(i<0?0:i)%PCOL.length]};
 const pname=id=>person(id)?.name||id||"";
+const LIGHT={red:"🔴",orange:"🟠",green:"🟢"};
+const light=id=>LIGHT[person(id)?.experience]||"";
+const lname=id=>{const l=light(id);return (l?l+" ":"")+pname(id)};
 const availFor=(date,slot)=>S.people.filter(p=>S.avail.has(date+"_"+slot+"_"+p.id)).map(p=>p.id);
 const capacity=n=>Math.min(S.config.labs||2,Math.floor(n/2));
 const sessFor=(date,slot)=>S.sessions.filter(s=>s.date===date&&s.slot===slot);
@@ -211,7 +214,7 @@ function renderStats(){
 function renderAvail(){
   const el=$("#tab-verfuegbarkeit");
   if(!S.ready){el.innerHTML=`<div class="card empty">Loading data …</div>`;return}
-  const pills=S.people.map(p=>`<button class="pill" data-sel="${esc(p.id)}" aria-pressed="${S.selected===p.id}"><span class="dot" style="background:${pcolor(p.id)}"></span>${esc(p.name)}</button>`).join("");
+  const pills=S.people.map(p=>`<button class="pill" data-sel="${esc(p.id)}" aria-pressed="${S.selected===p.id}"><span class="dot" style="background:${pcolor(p.id)}"></span>${esc(lname(p.id))}</button>`).join("");
   let html=`<div class="toolbar">
     <span class="hint" style="font-weight:600;color:var(--ink)">Edit for:</span>${pills||'<span class="hint">No people yet</span>'}
     <form id="addPerson" style="display:flex;gap:6px"><input id="newPerson" placeholder="New person" aria-label="New person" style="width:130px"><button type="submit">Add</button></form>
@@ -219,7 +222,7 @@ function renderAvail(){
     <label>From <input type="date" id="cfgStart" value="${esc(S.config.start)}"></label>
     <label>To <input type="date" id="cfgEnd" value="${esc(S.config.end)}"></label>
   </div>
-  <div class="legend"><span><i class="sw" style="background:var(--sunk)"></i>fewer than 2 people</span><span><i class="sw" style="background:var(--ok-soft)"></i>at least 2 people (1 session)</span><span><i class="sw" style="background:var(--ok-soft);border-color:var(--ok)"></i>4 people (2 labs in parallel)</span><span><span class="capdots"><i class="on"></i></span> free</span><span><span class="capdots"><i class="used"></i></span> session created</span></div>
+  <div class="legend"><span><i class="sw" style="background:var(--sunk)"></i>fewer than 2 people</span><span><i class="sw" style="background:var(--ok-soft)"></i>at least 2 people (1 session)</span><span><i class="sw" style="background:var(--ok-soft);border-color:var(--ok)"></i>4 people (2 labs in parallel)</span><span><span class="capdots"><i class="on"></i></span> free</span><span><span class="capdots"><i class="used"></i></span> session created</span><span>EEG recording experience: 🟢 a lot · 🟠 a little · 🔴 none</span></div>
   <p class="hint">${S.selected?`Click a slot to switch <b>${esc(pname(S.selected))}</b>'s availability on or off.`:"Choose a person above to enter their availability."}</p>`;
   const days=weekdays();const weeks=[];
   for(let i=0;i<days.length;i+=5)weeks.push(days.slice(i,i+5));
@@ -235,7 +238,7 @@ function renderAvail(){
         const dots=Array.from({length:S.config.labs||2},(_,k)=>`<i class="${k<used?"used":k<cap?"on":""}"></i>`).join("");
         html+=`<button class="slotbox ${cap>=2?"cap2":cap>=1?"cap1":""}${mine?" mine":""}" data-toggle="${d}|${sl}" ${(!S.selected||out)?"disabled":""} aria-label="${dLong(d)} Slot ${sl}">
           <span class="row"><span>Slot ${sl} · ${SLOTS[sl].team}</span><span class="capdots" title="${cap} session(s) possible">${dots}</span></span>
-          <span class="chips">${av.map(id=>`<span class="chip" style="background:${pcolor(id)}">${esc(pname(id))}</span>`).join("")}</span></button>`;
+          <span class="chips">${av.map(id=>`<span class="chip" style="background:${pcolor(id)}">${esc(lname(id))}</span>`).join("")}</span></button>`;
       }
       html+=`</div>`;
     }
@@ -263,7 +266,7 @@ function renderSlots(){
     const kw=isoWeek(pd(r.d));
     if(kw!==lastW){html+=`<tr class="wkhead"><td colspan="6">Week ${kw}</td></tr>`;lastW=kw}
     html+=`<tr><td class="time">${dShort(r.d)}</td><td class="time">Slot ${r.sl} · ${SLOTS[r.sl].vp}</td>
-      <td><span class="chips">${r.av.map(id=>`<span class="chip" style="background:${pcolor(id)}">${esc(pname(id))}</span>`).join("")}</span></td>
+      <td><span class="chips">${r.av.map(id=>`<span class="chip" style="background:${pcolor(id)}">${esc(lname(id))}</span>`).join("")}</span></td>
       <td class="num">${r.cap}</td><td class="num">${r.act}${r.act>r.cap?' <span class="warn">more than possible</span>':""}</td>
       <td style="white-space:nowrap"><button data-addsess="${r.d}|${r.sl}" ${r.act>=r.cap?"disabled":""}>+ Session</button></td></tr>`;
   }
@@ -282,7 +285,7 @@ function renderBook(){
   html+=`<div class="card tablewrap"><table><thead><tr><th>Date</th><th>Participant time</th><th>Lab</th><th>Status</th><th>Participant</th><th>Experimenter 1</th><th>Experimenter 2</th><th>Note</th><th></th></tr></thead><tbody>`;
   for(const s of list){
     const av=availFor(s.date,s.slot);
-    const opt=sel=>`<option value="">–</option>`+S.people.map(p=>`<option value="${esc(p.id)}" ${sel===p.id?"selected":""}>${esc(p.name)}${av.includes(p.id)?"":" (not available)"}</option>`).join("");
+    const opt=sel=>`<option value="">–</option>`+S.people.map(p=>`<option value="${esc(p.id)}" ${sel===p.id?"selected":""}>${esc(lname(p.id))}${av.includes(p.id)?"":" (not available)"}</option>`).join("");
     const w1=s.vl1&&!av.includes(s.vl1),w2=s.vl2&&!av.includes(s.vl2),dup=s.vl1&&s.vl1===s.vl2;
     html+=`<tr data-id="${esc(s.id)}"><td class="time">${dShort(s.date)}</td><td class="time">${SLOTS[s.slot].vp}</td><td class="num">Lab ${s.lab}</td>
      <td><select data-f="status" aria-label="Status">${STATUS.map(([k,v])=>`<option value="${k}" ${s.status===k?"selected":""}>${v}</option>`).join("")}</select></td>
