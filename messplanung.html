@@ -154,6 +154,20 @@ tr.st-gebucht td:first-child{box-shadow:inset 4px 0 var(--ok)}
 tr.st-durchgefuehrt td:first-child{box-shadow:inset 4px 0 var(--accent)}
 tr.st-abgesagt td:first-child{box-shadow:inset 4px 0 var(--bad)}
 tr.st-abgesagt td{color:var(--muted)}
+.extras{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:14px}
+@media (max-width:860px){.extras{grid-template-columns:1fr}}
+.extras .card{padding:12px 14px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.extras h3{font-size:14px}
+.gtable td,.gtable th{padding:5px 8px}
+.gbar{display:flex;height:10px;border-radius:5px;overflow:hidden;background:var(--sunk)}
+.gbar i{display:block;height:100%}
+.glegend{display:flex;flex-wrap:wrap;gap:10px;font-size:12px;color:var(--muted)}
+.glegend span{display:inline-flex;gap:5px;align-items:center}
+.mylist{display:flex;flex-direction:column;gap:6px}
+.myrow{display:grid;grid-template-columns:110px 100px 56px minmax(0,1fr);gap:8px;align-items:baseline;font-size:13px;padding:6px 8px;border-radius:8px;background:var(--sunk)}
+.myrow.past{opacity:.55}
+.myrow .who2{color:var(--muted);font-size:12px}
+@media (max-width:560px){.myrow{grid-template-columns:1fr 1fr}}
 .labh .status{font-size:10px;padding:0 6px;letter-spacing:0;text-transform:none}
 .labh .status.s-gebucht{background:var(--ok);color:var(--surface)}
 .stlegend{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
@@ -408,13 +422,49 @@ document.addEventListener("drop",async e=>{const z=e.target.closest&&e.target.cl
 document.addEventListener("keydown",e=>{if(e.key==="Escape"&&S.grab){S.grab=null;renderSlots()}});
 document.addEventListener("toggle",e=>{if(e.target.id==="trainBox")trainingHTML.open=e.target.open},true);
 
+const GCOL={female:"var(--p5)",male:"var(--p6)",diverse:"var(--p3)","not entered":"var(--line)"};
+function gnorm(g){g=String(g||"").trim().toLowerCase();if(!g)return"not entered";
+  if(/^(f|female|w|weiblich|frau)$/.test(g))return"female";if(/^(m|male|männlich|maennlich|mann)$/.test(g))return"male";
+  if(/^(d|diverse|divers|other|non-binary|nonbinary)$/.test(g))return"diverse";return g}
+function genderHTML(){
+  const rows=S.sessions.filter(s=>s.status==="gebucht"||s.status==="durchgefuehrt");
+  const cats=["female","male","diverse"];for(const s of rows){const g=gnorm(s.gender);if(!cats.includes(g)&&g!=="not entered")cats.push(g)}cats.push("not entered");
+  const cnt=(st,g)=>rows.filter(s=>(!st||s.status===st)&&gnorm(s.gender)===g).length;
+  const tot=rows.length;const shown=cats.filter(g=>cnt(null,g)>0||g==="female"||g==="male");
+  const bar=tot?`<div class="gbar">${shown.map(g=>`<i style="width:${cnt(null,g)/tot*100}%;background:${GCOL[g]||"var(--p4)"}" title="${esc(g)}: ${cnt(null,g)}"></i>`).join("")}</div>`:"";
+  return `<div class="card"><h3>Gender · booked &amp; done</h3>
+   ${tot?`${bar}<div class="glegend">${shown.map(g=>`<span><i class="sw" style="background:${GCOL[g]||"var(--p4)"}"></i>${esc(g)}</span>`).join("")}</div>
+   <table class="gtable"><thead><tr><th>Gender</th><th>Booked</th><th>Done</th><th>Total</th><th>%</th></tr></thead><tbody>
+   ${shown.map(g=>`<tr><td>${esc(g)}</td><td class="num">${cnt("gebucht",g)}</td><td class="num">${cnt("durchgefuehrt",g)}</td><td class="num"><b>${cnt(null,g)}</b></td><td class="num">${Math.round(cnt(null,g)/tot*100)}%</td></tr>`).join("")}
+   <tr><td><b>All</b></td><td class="num">${rows.filter(s=>s.status==="gebucht").length}</td><td class="num">${rows.filter(s=>s.status==="durchgefuehrt").length}</td><td class="num"><b>${tot}</b></td><td></td></tr></tbody></table>`
+   :`<p class="hint" style="margin:0">No booked or done sessions yet.</p>`}</div>`;
+}
+function myHTML(){
+  if(S.me===undefined){try{S.me=localStorage.getItem("messplanung.me")||""}catch{S.me=""}}
+  const me=person(S.me)?S.me:"";
+  const today=new Date().toLocaleDateString("sv-SE",{timeZone:"Europe/Zurich"});
+  const pills=S.people.map(p=>`<button class="pill" data-me="${esc(p.id)}" aria-pressed="${me===p.id}"><span class="dot" style="background:${pcolor(p.id)}"></span>${esc(lname(p.id))}</button>`).join("");
+  let body=`<p class="hint" style="margin:0">Click your name to see your booked recordings. The list updates automatically.</p>`;
+  if(me){
+    const key=s=>s.date+s.slot+s.lab;
+    const mine=S.sessions.filter(s=>s.status==="gebucht"&&[s.vl1,s.vl2,...(s.observers||[])].includes(me)).sort((a,b)=>key(a).localeCompare(key(b)));
+    const up=mine.filter(s=>s.date>=today),past=mine.filter(s=>s.date<today);
+    const row=s=>{const others=[s.vl1,s.vl2,...(s.observers||[])].filter(x=>x&&x!==me).map(pname);
+      const role=(s.observers||[]).includes(me)?" · also present":"";
+      const vp=[s.subject,s.initials,s.gender].filter(Boolean).join(" · ")||"participant –";
+      return `<div class="myrow${s.date<today?" past":""}"><b>${dShort(s.date)}</b><span class="time">${SLOTS[s.slot].vp}</span><span>Lab ${s.lab}</span><span>${esc(vp)}<br><span class="who2">with ${esc(others.join(", ")||"–")}${role}</span></span></div>`};
+    body=mine.length?`<div class="hint"><b style="color:var(--ink)">${esc(pname(me))}</b>: ${up.length} upcoming${past.length?` · ${past.length} past, still marked «Booked»`:""}</div><div class="mylist">${up.map(row).join("")}${past.map(row).join("")}</div>`
+      :`<p class="hint" style="margin:0"><b style="color:var(--ink)">${esc(pname(me))}</b> has no booked recordings at the moment.</p>`;
+  }
+  return `<div class="card"><h3>My recordings</h3><div class="chips" style="gap:6px">${pills}</div>${body}</div>`;
+}
 function renderBook(){
   const el=$("#tab-buchungen");
   if(!S.ready){el.innerHTML=`<div class="card empty">Loading data …</div>`;return}
   const f=renderBook.filter||"alle";
   const key=s=>s.date+s.slot+s.lab;
   const list=S.sessions.slice().sort((a,b)=>key(a).localeCompare(key(b))).filter(s=>f==="alle"||s.status===f);
-  let html=`<div class="toolbar"><label>Status <select id="fStatus"><option value="alle">All</option>${STATUS.map(([k,v])=>`<option value="${k}" ${f===k?"selected":""}>${v}</option>`).join("")}</select></label>
+  let html=`<div class="extras">${genderHTML()}${myHTML()}</div><div class="toolbar"><label>Status <select id="fStatus"><option value="alle">All</option>${STATUS.map(([k,v])=>`<option value="${k}" ${f===k?"selected":""}>${v}</option>`).join("")}</select></label>
    <span class="stlegend">${STATUS.map(([k,v])=>`<span class="status s-${k}">${v}</span>`).join("")}</span>
    <span class="hint grow">Changes are saved immediately for everyone. A code is enough for the participant if you prefer not to store names.</span></div>`;
   if(!S.sessions.length){el.innerHTML=html+`<div class="card empty">No sessions yet. Create them under «2 · Slots for ORSEE».</div>`;return}
@@ -484,6 +534,7 @@ document.addEventListener("click",async e=>{
   if(t.dataset.grab){const r=parseRef(t.dataset.grab);const g=S.grab;
     S.grab=(g&&g.d===r.d&&g.sl===r.sl&&g.id===r.id)?null:r;renderSlots();return}
   if(t.dataset.rm){const r=parseRef(t.dataset.rm);S.grab=null;await placePerson(r.d,r.sl,r.id,r.lab,0);return}
+  if(t.dataset.me){S.me=S.me===t.dataset.me?"":t.dataset.me;try{localStorage.setItem("messplanung.me",S.me)}catch{}renderBook();return}
   if(t.dataset.sel){S.selected=S.selected===t.dataset.sel?null:t.dataset.sel;renderAvail();return}
   if(t.dataset.toggle){const[d,sl]=t.dataset.toggle.split("|");const key=`${d}_${sl}_${S.selected}`;t.disabled=true;
     if(S.avail.has(key))await run(client.from("mp_avail").delete().match({date:d,slot:Number(sl),person_id:S.selected}),"mp_avail");
