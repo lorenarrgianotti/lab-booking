@@ -146,6 +146,17 @@ td.picks{min-width:260px}
 .pchip.grabbed{outline:2px solid var(--ink);outline-offset:1px}
 .pc .x{font-size:10px;line-height:1;padding:2px 3px;border:0;background:transparent;color:var(--muted)}
 .day.blocked .sbox{background:repeating-linear-gradient(45deg,var(--sunk),var(--sunk) 6px,var(--surface) 6px,var(--surface) 12px)}
+.stsel{font-weight:600;border:1px solid transparent;border-radius:999px;padding:4px 10px}
+.stsel option{background:var(--surface);color:var(--ink);font-weight:400}
+tr.st-geplant td:first-child{box-shadow:inset 4px 0 var(--line)}
+tr.st-orsee td:first-child{box-shadow:inset 4px 0 var(--warn)}
+tr.st-gebucht td:first-child{box-shadow:inset 4px 0 var(--ok)}
+tr.st-durchgefuehrt td:first-child{box-shadow:inset 4px 0 var(--accent)}
+tr.st-abgesagt td:first-child{box-shadow:inset 4px 0 var(--bad)}
+tr.st-abgesagt td{color:var(--muted)}
+.labh .status{font-size:10px;padding:0 6px;letter-spacing:0;text-transform:none}
+.labh .status.s-gebucht{background:var(--ok);color:var(--surface)}
+.stlegend{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 @media (prefers-reduced-motion:no-preference){.slotbox{transition:box-shadow .15s}}
 </style>
 <style>
@@ -338,7 +349,7 @@ function renderSlots(){
           let note="";
           if(ex.length===1)note=`<span class="lnote" style="color:var(--warn)">needs 1 more</span>`;
           
-          const st=s&&s.status!=="geplant"?` · ${esc((STATUS.find(x=>x[0]===s.status)||[,""])[1])}`:"";
+          const st=s&&s.status!=="geplant"?` <span class="status s-${esc(s.status)}">${esc((STATUS.find(x=>x[0]===s.status)||[,""])[1])}</span>`:"";
           const warnAv=ex.concat(ob).filter(id=>!av.includes(id)&&!isJoker(id));
           html+=`<div class="lab ${cls}${here&&g.lab!==l?" target":""}" data-lab="${d}|${sl}|${l}"><span class="labh"><span>Lab ${l}${st}</span>${s&&s.subject?`<span title="${esc([s.subject,s.initials,s.gender].filter(Boolean).join(" · "))}">👤</span>`:""}</span>
             <span class="lchips">${ex.concat(ob).map(id=>chipHTML(d,sl,id,l)).join("")}</span>${note}${warnAv.length?`<span class="lnote" style="color:var(--warn)">${warnAv.map(pname).join(", ")}: not marked as available</span>`:""}</div>`;
@@ -404,6 +415,7 @@ function renderBook(){
   const key=s=>s.date+s.slot+s.lab;
   const list=S.sessions.slice().sort((a,b)=>key(a).localeCompare(key(b))).filter(s=>f==="alle"||s.status===f);
   let html=`<div class="toolbar"><label>Status <select id="fStatus"><option value="alle">All</option>${STATUS.map(([k,v])=>`<option value="${k}" ${f===k?"selected":""}>${v}</option>`).join("")}</select></label>
+   <span class="stlegend">${STATUS.map(([k,v])=>`<span class="status s-${k}">${v}</span>`).join("")}</span>
    <span class="hint grow">Changes are saved immediately for everyone. A code is enough for the participant if you prefer not to store names.</span></div>`;
   if(!S.sessions.length){el.innerHTML=html+`<div class="card empty">No sessions yet. Create them under «2 · Slots for ORSEE».</div>`;return}
   html+=`<div class="card tablewrap"><table><thead><tr><th>Date</th><th>Participant time</th><th>Lab</th><th>Status</th><th>Participant</th><th>Initials</th><th>Gender</th><th>Experimenter 1</th><th>Experimenter 2</th><th>Also present</th><th>Note</th><th></th></tr></thead><tbody>`;
@@ -413,8 +425,8 @@ function renderBook(){
     const obs=s.observers||[];
     const obsOpt=`<option value="">+ add</option>`+S.people.filter(p=>p.id!==s.vl1&&p.id!==s.vl2&&!obs.includes(p.id)).map(p=>`<option value="${esc(p.id)}">${esc(lname(p.id))}</option>`).join("");
     const w1=s.vl1&&!av.includes(s.vl1)&&!isJoker(s.vl1),w2=s.vl2&&!av.includes(s.vl2)&&!isJoker(s.vl2),dup=s.vl1&&s.vl1===s.vl2;
-    html+=`<tr data-id="${esc(s.id)}"><td class="time">${dShort(s.date)}</td><td class="time">${SLOTS[s.slot].vp}</td><td class="num">Lab ${s.lab}</td>
-     <td><select data-f="status" aria-label="Status">${STATUS.map(([k,v])=>`<option value="${k}" ${s.status===k?"selected":""}>${v}</option>`).join("")}</select></td>
+    html+=`<tr data-id="${esc(s.id)}" class="st-${esc(s.status)}"><td class="time">${dShort(s.date)}</td><td class="time">${SLOTS[s.slot].vp}</td><td class="num">Lab ${s.lab}</td>
+     <td><select data-f="status" class="stsel s-${esc(s.status)}" aria-label="Status">${STATUS.map(([k,v])=>`<option value="${k}" ${s.status===k?"selected":""}>${v}</option>`).join("")}</select></td>
      <td><input data-f="subject" value="${esc(s.subject)}" placeholder="Name or code" aria-label="Participant"></td>
      <td><input data-f="initials" value="${esc(s.initials)}" placeholder="–" aria-label="Initials" style="min-width:56px;width:64px"></td>
      <td><input data-f="gender" value="${esc(s.gender)}" placeholder="–" aria-label="Gender" style="min-width:70px;width:84px"></td>
