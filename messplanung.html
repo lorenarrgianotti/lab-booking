@@ -340,7 +340,7 @@ function renderSlots(){
           
           const st=s&&s.status!=="geplant"?` · ${esc((STATUS.find(x=>x[0]===s.status)||[,""])[1])}`:"";
           const warnAv=ex.concat(ob).filter(id=>!av.includes(id)&&!isJoker(id));
-          html+=`<div class="lab ${cls}${here&&g.lab!==l?" target":""}" data-lab="${d}|${sl}|${l}"><span class="labh"><span>Lab ${l}${st}</span>${s&&s.subject?`<span title="participant">👤</span>`:""}</span>
+          html+=`<div class="lab ${cls}${here&&g.lab!==l?" target":""}" data-lab="${d}|${sl}|${l}"><span class="labh"><span>Lab ${l}${st}</span>${s&&s.subject?`<span title="${esc([s.subject,s.initials,s.gender].filter(Boolean).join(" · "))}">👤</span>`:""}</span>
             <span class="lchips">${ex.concat(ob).map(id=>chipHTML(d,sl,id,l)).join("")}</span>${note}${warnAv.length?`<span class="lnote" style="color:var(--warn)">${warnAv.map(pname).join(", ")}: not marked as available</span>`:""}</div>`;
         }
         html+=`</div>`;
@@ -406,7 +406,7 @@ function renderBook(){
   let html=`<div class="toolbar"><label>Status <select id="fStatus"><option value="alle">All</option>${STATUS.map(([k,v])=>`<option value="${k}" ${f===k?"selected":""}>${v}</option>`).join("")}</select></label>
    <span class="hint grow">Changes are saved immediately for everyone. A code is enough for the participant if you prefer not to store names.</span></div>`;
   if(!S.sessions.length){el.innerHTML=html+`<div class="card empty">No sessions yet. Create them under «2 · Slots for ORSEE».</div>`;return}
-  html+=`<div class="card tablewrap"><table><thead><tr><th>Date</th><th>Participant time</th><th>Lab</th><th>Status</th><th>Participant</th><th>Experimenter 1</th><th>Experimenter 2</th><th>Also present</th><th>Note</th><th></th></tr></thead><tbody>`;
+  html+=`<div class="card tablewrap"><table><thead><tr><th>Date</th><th>Participant time</th><th>Lab</th><th>Status</th><th>Participant</th><th>Initials</th><th>Gender</th><th>Experimenter 1</th><th>Experimenter 2</th><th>Also present</th><th>Note</th><th></th></tr></thead><tbody>`;
   for(const s of list){
     const av=availFor(s.date,s.slot);
     const opt=sel=>`<option value="">–</option>`+S.people.map(p=>`<option value="${esc(p.id)}" ${sel===p.id?"selected":""}>${esc(lname(p.id))}${av.includes(p.id)||p.joker?"":" (not available)"}</option>`).join("");
@@ -416,6 +416,8 @@ function renderBook(){
     html+=`<tr data-id="${esc(s.id)}"><td class="time">${dShort(s.date)}</td><td class="time">${SLOTS[s.slot].vp}</td><td class="num">Lab ${s.lab}</td>
      <td><select data-f="status" aria-label="Status">${STATUS.map(([k,v])=>`<option value="${k}" ${s.status===k?"selected":""}>${v}</option>`).join("")}</select></td>
      <td><input data-f="subject" value="${esc(s.subject)}" placeholder="Name or code" aria-label="Participant"></td>
+     <td><input data-f="initials" value="${esc(s.initials)}" placeholder="–" aria-label="Initials" style="min-width:56px;width:64px"></td>
+     <td><input data-f="gender" value="${esc(s.gender)}" placeholder="–" aria-label="Gender" style="min-width:70px;width:84px"></td>
      <td><select data-f="vl1" aria-label="Experimenter 1">${opt(s.vl1)}</select>${w1?'<span class="warn">not marked as available</span>':""}</td>
      <td><select data-f="vl2" aria-label="Experimenter 2">${opt(s.vl2)}</select>${dup?'<span class="warn">same person twice</span>':w2?'<span class="warn">not marked as available</span>':""}</td>
      <td><div class="obsl">${obs.map(o=>`<button class="ghost" data-obsdel="${esc(s.id)}|${esc(o)}" title="Remove">${esc(pname(o))} ✕</button>`).join("")}<select data-obsadd aria-label="Add person" style="min-width:80px;width:auto">${obsOpt}</select></div></td>
