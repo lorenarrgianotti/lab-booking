@@ -154,6 +154,21 @@ tr.st-gebucht td:first-child{box-shadow:inset 4px 0 var(--ok)}
 tr.st-durchgefuehrt td:first-child{box-shadow:inset 4px 0 var(--accent)}
 tr.st-abgesagt td:first-child{box-shadow:inset 4px 0 var(--bad)}
 tr.st-abgesagt td{color:var(--muted)}
+table.bk{min-width:0}
+table.bk td{padding:5px 8px}
+table.bk select{min-width:0;width:118px}
+table.bk input[data-f="subject"]{width:120px;min-width:0}
+table.bk td.note input{width:150px;min-width:0}
+table.bk .warn{display:block;font-size:10px;white-space:nowrap}
+tr.bkweek td{background:var(--accent);color:var(--accent-ink);font-weight:600;font-size:12px;letter-spacing:.04em;padding:6px 10px}
+tr.bkday td{background:var(--surface);border-top:2px solid var(--ink);padding:14px 10px 6px;font-family:var(--f-display,inherit);font-size:15px;font-weight:700}
+tr.bkday .daysum{font-family:var(--f-body,inherit);font-weight:400;font-size:12px;margin-left:12px;display:inline-flex;gap:6px;vertical-align:middle}
+tr.bkday.past td{opacity:.6}
+tr.bkslot td{background:var(--sunk);font-size:12px;font-weight:600;color:var(--muted);padding:4px 10px;border-bottom:1px solid var(--line)}
+tr.bkslot b{color:var(--ink)}
+.labbadge{display:inline-block;font-weight:700;font-size:12px;border-radius:6px;padding:2px 8px;background:var(--sunk);white-space:nowrap}
+tr.bkrow.first-of-day td{}
+
 .extras{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:14px}
 @media (max-width:860px){.extras{grid-template-columns:1fr}}
 .extras .card{padding:12px 14px;display:flex;flex-direction:column;gap:10px;min-width:0}
@@ -461,28 +476,42 @@ function myHTML(){
 function renderBook(){
   const el=$("#tab-buchungen");
   if(!S.ready){el.innerHTML=`<div class="card empty">Loading data …</div>`;return}
-  const f=renderBook.filter||"alle";
+  const f=renderBook.filter||"alle",hidePast=!!renderBook.hidePast;
+  const today=new Date().toLocaleDateString("sv-SE",{timeZone:"Europe/Zurich"});
   const key=s=>s.date+s.slot+s.lab;
-  const list=S.sessions.slice().sort((a,b)=>key(a).localeCompare(key(b))).filter(s=>f==="alle"||s.status===f);
+  const list=S.sessions.slice().sort((a,b)=>key(a).localeCompare(key(b))).filter(s=>(f==="alle"||s.status===f)&&(!hidePast||s.date>=today));
   let html=`<div class="extras">${genderHTML()}${myHTML()}</div><div class="toolbar"><label>Status <select id="fStatus"><option value="alle">All</option>${STATUS.map(([k,v])=>`<option value="${k}" ${f===k?"selected":""}>${v}</option>`).join("")}</select></label>
+   <label style="display:inline-flex;gap:6px;align-items:center"><input type="checkbox" id="fPast" ${hidePast?"checked":""}> hide past days</label>
    <span class="stlegend">${STATUS.map(([k,v])=>`<span class="status s-${k}">${v}</span>`).join("")}</span>
    <span class="hint grow">Changes are saved immediately for everyone. A code is enough for the participant if you prefer not to store names.</span></div>`;
   if(!S.sessions.length){el.innerHTML=html+`<div class="card empty">No sessions yet. Create them under «2 · Slots for ORSEE».</div>`;return}
-  html+=`<div class="card tablewrap"><table><thead><tr><th>Date</th><th>Participant time</th><th>Lab</th><th>Status</th><th>Participant</th><th>Initials</th><th>Gender</th><th>Experimenter 1</th><th>Experimenter 2</th><th>Also present</th><th>Note</th><th></th></tr></thead><tbody>`;
+  if(!list.length){el.innerHTML=html+`<div class="card empty">No sessions match this filter.</div>`;return}
+  const NC=10;
+  html+=`<div class="card tablewrap"><table class="bk"><thead><tr><th>Lab</th><th>Status</th><th>Participant</th><th>Initials</th><th>Gender</th><th>Experimenter 1</th><th>Experimenter 2</th><th>Also present</th><th>Note</th><th></th></tr></thead><tbody>`;
+  const wdLong=d=>pd(d).toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",timeZone:"UTC"});
+  let lastW=null,lastD=null,lastS=null;
   for(const s of list){
+    const kw=isoWeek(pd(s.date));
+    if(kw!==lastW){html+=`<tr class="bkweek"><td colspan="${NC}">Week ${kw}</td></tr>`;lastW=kw;lastD=null}
+    if(s.date!==lastD){
+      const day=list.filter(x=>x.date===s.date);
+      const sum=STATUS.map(([k,v])=>{const n=day.filter(x=>x.status===k).length;return n?`<span class="status s-${k}">${n} ${v}</span>`:""}).join("");
+      html+=`<tr class="bkday${s.date<today?" past":""}"><td colspan="${NC}">${esc(wdLong(s.date))}${s.date===today?' <span class="status s-gebucht">today</span>':""}<span class="daysum">${sum}</span></td></tr>`;
+      lastD=s.date;lastS=null}
+    if(s.slot!==lastS){html+=`<tr class="bkslot"><td colspan="${NC}"><b>Slot ${s.slot}</b> · participant ${SLOTS[s.slot].vp} · team ${SLOTS[s.slot].team}</td></tr>`;lastS=s.slot}
     const av=availFor(s.date,s.slot);
     const opt=sel=>`<option value="">–</option>`+S.people.map(p=>`<option value="${esc(p.id)}" ${sel===p.id?"selected":""}>${esc(lname(p.id))}${av.includes(p.id)||p.joker?"":" (not available)"}</option>`).join("");
     const obs=s.observers||[];
     const obsOpt=`<option value="">+ add</option>`+S.people.filter(p=>p.id!==s.vl1&&p.id!==s.vl2&&!obs.includes(p.id)).map(p=>`<option value="${esc(p.id)}">${esc(lname(p.id))}</option>`).join("");
     const w1=s.vl1&&!av.includes(s.vl1)&&!isJoker(s.vl1),w2=s.vl2&&!av.includes(s.vl2)&&!isJoker(s.vl2),dup=s.vl1&&s.vl1===s.vl2;
-    html+=`<tr data-id="${esc(s.id)}" class="st-${esc(s.status)}"><td class="time">${dShort(s.date)}</td><td class="time">${SLOTS[s.slot].vp}</td><td class="num">Lab ${s.lab}</td>
+    html+=`<tr data-id="${esc(s.id)}" class="bkrow st-${esc(s.status)}"><td><span class="labbadge">Lab ${s.lab}</span></td>
      <td><select data-f="status" class="stsel s-${esc(s.status)}" aria-label="Status">${STATUS.map(([k,v])=>`<option value="${k}" ${s.status===k?"selected":""}>${v}</option>`).join("")}</select></td>
      <td><input data-f="subject" value="${esc(s.subject)}" placeholder="Name or code" aria-label="Participant"></td>
-     <td><input data-f="initials" value="${esc(s.initials)}" placeholder="–" aria-label="Initials" style="min-width:56px;width:64px"></td>
-     <td><input data-f="gender" value="${esc(s.gender)}" placeholder="–" aria-label="Gender" style="min-width:70px;width:84px"></td>
-     <td><select data-f="vl1" aria-label="Experimenter 1">${opt(s.vl1)}</select>${w1?'<span class="warn">not marked as available</span>':""}</td>
-     <td><select data-f="vl2" aria-label="Experimenter 2">${opt(s.vl2)}</select>${dup?'<span class="warn">same person twice</span>':w2?'<span class="warn">not marked as available</span>':""}</td>
-     <td><div class="obsl">${obs.map(o=>`<button class="ghost" data-obsdel="${esc(s.id)}|${esc(o)}" title="Remove">${esc(pname(o))} ✕</button>`).join("")}<select data-obsadd aria-label="Add person" style="min-width:80px;width:auto">${obsOpt}</select></div></td>
+     <td><input data-f="initials" value="${esc(s.initials)}" placeholder="–" aria-label="Initials" style="min-width:0;width:52px"></td>
+     <td><input data-f="gender" value="${esc(s.gender)}" placeholder="–" aria-label="Gender" style="min-width:0;width:64px"></td>
+     <td><select data-f="vl1" aria-label="Experimenter 1">${opt(s.vl1)}</select>${w1?'<span class="warn">⚠ not available</span>':""}</td>
+     <td><select data-f="vl2" aria-label="Experimenter 2">${opt(s.vl2)}</select>${dup?'<span class="warn">⚠ same person twice</span>':w2?'<span class="warn">⚠ not available</span>':""}</td>
+     <td><div class="obsl">${obs.map(o=>`<button class="ghost" data-obsdel="${esc(s.id)}|${esc(o)}" title="Remove">${esc(pname(o))} ✕</button>`).join("")}<select data-obsadd aria-label="Add person" style="min-width:0;width:auto">${obsOpt}</select></div></td>
      <td class="note"><input data-f="note" value="${esc(s.note)}" aria-label="Note"></td>
      <td style="white-space:nowrap">${S.deleting===s.id?`<span class="confirm"><button data-delyes="${esc(s.id)}">Delete</button><button class="ghost" data-delno>Cancel</button></span>`:`<button class="ghost" data-del="${esc(s.id)}" aria-label="Delete session">✕</button>`}</td></tr>`;
   }
@@ -576,6 +605,7 @@ document.addEventListener("submit",async e=>{
 });
 document.addEventListener("change",async e=>{
   const t=e.target;if(!S.ready)return;
+  if(t.id==="fPast"){renderBook.hidePast=t.checked;renderBook();return}
   if(t.id==="fStatus"){renderBook.filter=t.value;renderBook();return}
   if(t.id==="cfgStart"||t.id==="cfgEnd"){if(!t.value)return;
     await run(client.from("mp_config").update({[t.id==="cfgStart"?"start_day":"end_day"]:t.value}).eq("id",1),"mp_config");return}
