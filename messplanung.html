@@ -155,6 +155,14 @@ tr.st-durchgefuehrt td:first-child{box-shadow:inset 4px 0 var(--accent)}
 tr.st-abgesagt td:first-child{box-shadow:inset 4px 0 var(--bad)}
 tr.st-abgesagt td{color:var(--muted)}
 table.bk{min-width:0}
+table.bk select.labsel{width:92px;font-weight:700}
+table.bk select.prot{width:62px;font-weight:700;text-align:center;border-radius:999px}
+select.prot.p-A{background:#E7F0FB;color:#1F5FA8;border-color:#1F5FA8}
+select.prot.p-B{background:#FCEEE3;color:#B4561B;border-color:#B4561B}
+.protcard{display:flex;flex-wrap:wrap;gap:18px;align-items:center;padding:10px 14px}
+.protcard .pc1{display:flex;flex-direction:column;gap:4px;min-width:200px}
+.protcard .pbar{height:8px;border-radius:4px;background:var(--sunk);overflow:hidden;display:flex}
+.protcard .pbar i{display:block;height:100%}
 table.bk td{padding:5px 8px}
 table.bk select{min-width:0;width:118px}
 table.bk input[data-f="subject"]{width:120px;min-width:0}
@@ -266,6 +274,8 @@ const pname=id=>person(id)?.name||id||"";
 const lname=id=>pname(id);
 const availFor=(date,slot)=>S.people.filter(p=>S.avail.has(date+"_"+slot+"_"+p.id)).map(p=>p.id);
 const capacity=n=>Math.min(S.config.labs||2,Math.floor(n/2));
+const LABNAMES={1:"Lab 1",2:"Lab 2",3:"B208A"};
+const labName=l=>LABNAMES[l]||("Lab "+l);
 const blocked=d=>(S.config.blocked||[]).includes(d);
 const isJoker=id=>!!person(id)?.joker;
 const RANK={green:3,orange:2,red:1};
@@ -372,7 +382,8 @@ function renderSlots(){
         const here=g&&g.d===d&&g.sl===sl;
         html+=`<div class="sbox"><span class="row"><span>Slot ${sl} · ${SLOTS[sl].team}</span></span>
           <div class="pool${here&&g.lab?" target":""}" data-pool="${d}|${sl}">${pool.map(id=>chipHTML(d,sl,id,0)).join("")||'<span class="hint" style="font-size:11px">–</span>'}</div>`;
-        for(let l=1;l<=L;l++){
+        const labsHere=[...Array(L).keys()].map(k=>k+1).concat(ss.some(x=>x.lab===3)&&L<3?[3]:[]);
+        for(const l of labsHere){
           const s=ss.find(x=>x.lab===l);const ex=s?[s.vl1,s.vl2].filter(Boolean):[],ob=s?(s.observers||[]):[];
           const cls=ex.length>=2?"full":ex.length===1?"part":"";
           let note="";
@@ -380,7 +391,7 @@ function renderSlots(){
           
           const st=s&&s.status!=="geplant"?` <span class="status s-${esc(s.status)}">${esc((STATUS.find(x=>x[0]===s.status)||[,""])[1])}</span>`:"";
           const warnAv=ex.concat(ob).filter(id=>!av.includes(id)&&!isJoker(id));
-          html+=`<div class="lab ${cls}${here&&g.lab!==l?" target":""}" data-lab="${d}|${sl}|${l}"><span class="labh"><span>Lab ${l}${st}</span>${s&&s.subject?`<span title="${esc([s.subject,s.initials,s.gender].filter(Boolean).join(" · "))}">👤</span>`:""}</span>
+          html+=`<div class="lab ${cls}${here&&g.lab!==l?" target":""}" data-lab="${d}|${sl}|${l}"><span class="labh"><span>${esc(labName(l))}${st}</span>${s&&s.subject?`<span title="${esc([s.subject,s.initials,s.gender].filter(Boolean).join(" · "))}">👤</span>`:""}</span>
             <span class="lchips">${ex.concat(ob).map(id=>chipHTML(d,sl,id,l)).join("")}</span>${note}${warnAv.length?`<span class="lnote" style="color:var(--warn)">${warnAv.map(pname).join(", ")}: not marked as available</span>`:""}</div>`;
         }
         html+=`</div>`;
@@ -395,7 +406,7 @@ function renderSlots(){
 async function placePerson(d,sl,id,from,to){
   if(from===to)return;
   const sess=l=>activeSess(d,sl).find(x=>x.lab===l);
-  if(to){const t=sess(to);if(t&&t.vl1&&t.vl2&&(t.observers||[]).length>=1){toast(`Lab ${to} already has 3 people`);return}}
+  if(to){const t=sess(to);if(t&&t.vl1&&t.vl2&&(t.observers||[]).length>=1){toast(`${labName(to)} already has 3 people`);return}}
   let tgt=null;
   if(to){let s=sess(to);
     if(!s){const old=S.sessions.find(x=>x.date===d&&x.slot===sl&&x.lab===to);
@@ -467,7 +478,7 @@ function myHTML(){
     const row=s=>{const others=[s.vl1,s.vl2,...(s.observers||[])].filter(x=>x&&x!==me).map(pname);
       const role=(s.observers||[]).includes(me)?" · also present":"";
       const vp=[s.subject,s.initials,s.gender].filter(Boolean).join(" · ")||"participant –";
-      return `<div class="myrow${s.date<today?" past":""}"><b>${dShort(s.date)}</b><span class="time">${SLOTS[s.slot].vp}</span><span>Lab ${s.lab}</span><span>${esc(vp)}<br><span class="who2">with ${esc(others.join(", ")||"–")}${role}</span></span></div>`};
+      return `<div class="myrow${s.date<today?" past":""}"><b>${dShort(s.date)}</b><span class="time">${SLOTS[s.slot].vp}</span><span>${esc(labName(s.lab))}</span><span>${esc(vp)}<br><span class="who2">with ${esc(others.join(", ")||"–")}${role}</span></span></div>`};
     body=mine.length?`<div class="hint"><b style="color:var(--ink)">${esc(pname(me))}</b>: ${up.length} upcoming${past.length?` · ${past.length} past, still marked «Booked»`:""}</div><div class="mylist">${up.map(row).join("")}${past.map(row).join("")}</div>`
       :`<p class="hint" style="margin:0"><b style="color:var(--ink)">${esc(pname(me))}</b> has no booked recordings at the moment.</p>`;
   }
@@ -480,14 +491,19 @@ function renderBook(){
   const today=new Date().toLocaleDateString("sv-SE",{timeZone:"Europe/Zurich"});
   const key=s=>s.date+s.slot+s.lab;
   const list=S.sessions.slice().sort((a,b)=>key(a).localeCompare(key(b))).filter(s=>(f==="alle"||s.status===f)&&(!hidePast||s.date>=today));
-  let html=`<div class="extras">${genderHTML()}${myHTML()}</div><div class="toolbar"><label>Status <select id="fStatus"><option value="alle">All</option>${STATUS.map(([k,v])=>`<option value="${k}" ${f===k?"selected":""}>${v}</option>`).join("")}</select></label>
+  const tgt=S.config.ptarget||25;
+  const pc=p=>{const b=S.sessions.filter(s=>s.protocol===p&&s.status==="gebucht").length,d=S.sessions.filter(s=>s.protocol===p&&s.status==="durchgefuehrt").length;
+    const col=p==="A"?"#1F5FA8":"#B4561B";
+    return `<div class="pc1"><span><b style="color:${col}">Protocol ${p}</b> · ${b+d} / ${tgt} <span class="muted">(${d} done, ${b} booked)</span></span><div class="pbar"><i style="width:${Math.min(100,d/tgt*100)}%;background:${col}"></i><i style="width:${Math.min(100,b/tgt*100)}%;background:${col};opacity:.4"></i></div></div>`};
+  const protHTML=`<div class="card protcard"><b>Resting protocol A / B</b>${pc("A")}${pc("B")}<span class="hint grow">Assigned at random when a session becomes «Booked», so that each protocol reaches ${tgt} participants. Can be changed by hand.</span></div>`;
+  let html=`<div class="extras">${genderHTML()}${myHTML()}</div>${protHTML}<div class="toolbar"><label>Status <select id="fStatus"><option value="alle">All</option>${STATUS.map(([k,v])=>`<option value="${k}" ${f===k?"selected":""}>${v}</option>`).join("")}</select></label>
    <label style="display:inline-flex;gap:6px;align-items:center"><input type="checkbox" id="fPast" ${hidePast?"checked":""}> hide past days</label>
    <span class="stlegend">${STATUS.map(([k,v])=>`<span class="status s-${k}">${v}</span>`).join("")}</span>
    <span class="hint grow">Changes are saved immediately for everyone. A code is enough for the participant if you prefer not to store names.</span></div>`;
   if(!S.sessions.length){el.innerHTML=html+`<div class="card empty">No sessions yet. Create them under «2 · Slots for ORSEE».</div>`;return}
   if(!list.length){el.innerHTML=html+`<div class="card empty">No sessions match this filter.</div>`;return}
-  const NC=9;
-  html+=`<div class="card tablewrap"><table class="bk"><thead><tr><th>Lab</th><th>Status</th><th>Participant</th><th>Initials</th><th>Gender</th><th>Experimenter 1</th><th>Experimenter 2</th><th>Experimenter 3</th><th></th></tr></thead><tbody>`;
+  const NC=10;
+  html+=`<div class="card tablewrap"><table class="bk"><thead><tr><th>Lab</th><th>Status</th><th>Protocol</th><th>Participant</th><th>Initials</th><th>Gender</th><th>Experimenter 1</th><th>Experimenter 2</th><th>Experimenter 3</th><th></th></tr></thead><tbody>`;
   const wdLong=d=>pd(d).toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",timeZone:"UTC"});
   let lastW=null,lastD=null,lastS=null;
   for(const s of list){
@@ -505,8 +521,11 @@ function renderBook(){
     const v3=obs[0]||"";
     const w1=s.vl1&&!av.includes(s.vl1)&&!isJoker(s.vl1),w2=s.vl2&&!av.includes(s.vl2)&&!isJoker(s.vl2),w3=v3&&!av.includes(v3)&&!isJoker(v3);
     const dup=s.vl1&&s.vl1===s.vl2,dup3=v3&&(v3===s.vl1||v3===s.vl2);
-    html+=`<tr data-id="${esc(s.id)}" class="bkrow st-${esc(s.status)}"><td><span class="labbadge">Lab ${s.lab}</span></td>
+    const usedL=new Set(S.sessions.filter(x=>x.id!==s.id&&x.date===s.date&&x.slot===s.slot).map(x=>x.lab));
+    const labOpt=[1,2,3].map(l=>`<option value="${l}" ${s.lab===l?"selected":""} ${usedL.has(l)?"disabled":""}>${labName(l)}${usedL.has(l)?" (taken)":""}</option>`).join("");
+    html+=`<tr data-id="${esc(s.id)}" class="bkrow st-${esc(s.status)}"><td><select data-f="lab" class="labsel" aria-label="Lab">${labOpt}</select></td>
      <td><select data-f="status" class="stsel s-${esc(s.status)}" aria-label="Status">${STATUS.map(([k,v])=>`<option value="${k}" ${s.status===k?"selected":""}>${v}</option>`).join("")}</select></td>
+     <td><select data-f="protocol" class="prot p-${esc(s.protocol||"")}" aria-label="Protocol"><option value="">–</option><option value="A" ${s.protocol==="A"?"selected":""}>A</option><option value="B" ${s.protocol==="B"?"selected":""}>B</option></select></td>
      <td><input data-f="subject" value="${esc(s.subject)}" placeholder="Name or code" aria-label="Participant"></td>
      <td><input data-f="initials" value="${esc(s.initials)}" placeholder="–" aria-label="Initials" style="min-width:0;width:52px"></td>
      <td><input data-f="gender" value="${esc(s.gender)}" placeholder="–" aria-label="Gender" style="min-width:0;width:64px"></td>
@@ -531,7 +550,7 @@ async function loadAvail(){const{data,error}=await client.from("mp_avail").selec
 async function loadSessions(){const{data,error}=await client.from("mp_sessions").select("*").limit(5000);if(error)throw error;
   S.sessions=data.map(r=>({...r,vl1:r.vl1||"",vl2:r.vl2||"",observers:r.observers||[]}))}
 async function loadConfig(){const{data,error}=await client.from("mp_config").select("*").eq("id",1).maybeSingle();if(error)throw error;
-  if(data)S.config={start:data.start_day,end:data.end_day,labs:data.labs,target:data.target,blocked:data.blocked_days||[]}}
+  if(data)S.config={start:data.start_day,end:data.end_day,labs:data.labs,target:data.target,ptarget:data.protocol_target||25,blocked:data.blocked_days||[]}}
 const LOADERS={mp_people:loadPeople,mp_avail:loadAvail,mp_sessions:loadSessions,mp_config:loadConfig};
 async function reload(name){try{await LOADERS[name]();renderAll()}catch(e){toast(msg(e))}}
 function msg(e){const m=(e&&e.message)||String(e);if(e&&e.code==="23505")return"This entry already exists. The view has been refreshed.";return"Saving failed: "+m}
@@ -588,7 +607,7 @@ document.addEventListener("click",async e=>{
     renderAll();toast(n+" sessions created");return}
   if(t.id==="copyOrsee"){const key=s=>s.date+s.slot+s.lab;
     const lines=S.sessions.filter(s=>(s.status==="geplant"||s.status==="orsee")&&s.vl1&&s.vl2).sort((a,b)=>key(a).localeCompare(key(b)))
-      .map(s=>`${dLong(s.date)}\t${SLOTS[s.slot].vp}\tLab ${s.lab}`).join("\n");
+      .map(s=>`${dLong(s.date)}\t${SLOTS[s.slot].vp}\t${labName(s.lab)}`).join("\n");
     if(!lines){toast("No complete sessions (2 experimenters) to copy.");return}
     try{await navigator.clipboard.writeText(lines);toast("List copied ("+lines.split("\n").length+" sessions)")}catch{toast("Copying is not possible in this browser.")}
     return}
@@ -614,7 +633,7 @@ document.addEventListener("change",async e=>{
     await run(client.from("mp_sessions").update({observers:t.value?[t.value]:[]}).eq("id",tr.dataset.id),"mp_sessions");return}
   if(tr&&t.dataset.obsadd!==undefined&&t.value){const s=S.sessions.find(x=>x.id===tr.dataset.id);if(!s)return;
     await run(client.from("mp_sessions").update({observers:[...(s.observers||[]),t.value]}).eq("id",s.id),"mp_sessions");return}
-  if(tr&&t.dataset.f){let v=t.value;if((t.dataset.f==="vl1"||t.dataset.f==="vl2")&&!v)v=null;
+  if(tr&&t.dataset.f){let v=t.value;if((t.dataset.f==="vl1"||t.dataset.f==="vl2"||t.dataset.f==="protocol")&&!v)v=null;if(t.dataset.f==="lab")v=Number(v);
     await run(client.from("mp_sessions").update({[t.dataset.f]:v}).eq("id",tr.dataset.id),"mp_sessions")}
 });
 
