@@ -156,6 +156,9 @@ tr.st-abgesagt td:first-child{box-shadow:inset 4px 0 var(--bad)}
 tr.st-abgesagt td{color:var(--muted)}
 table.bk{min-width:0}
 table.bk select.labsel{width:92px;font-weight:700}
+tr.locked td{background-image:linear-gradient(var(--sunk),var(--sunk));background-blend-mode:multiply}
+tr.locked select:disabled,tr.locked input:disabled{opacity:1;cursor:not-allowed;border-style:dotted}
+.lockbtn{font-size:11px;padding:2px 7px}
 table.bk select.prot{width:62px;font-weight:700;text-align:center;border-radius:999px}
 select.prot.p-A{background:#E7F0FB;color:#1F5FA8;border-color:#1F5FA8}
 select.prot.p-B{background:#FCEEE3;color:#B4561B;border-color:#B4561B}
@@ -276,6 +279,14 @@ const availFor=(date,slot)=>S.people.filter(p=>S.avail.has(date+"_"+slot+"_"+p.i
 const capacity=n=>Math.min(S.config.labs||2,Math.floor(n/2));
 const LABNAMES={1:"Lab 1",2:"Lab 2",3:"B208A"};
 const labName=l=>LABNAMES[l]||("Lab "+l);
+const ADMIN="lorena.gianotti@unibe.ch";
+const isAdmin=()=>(S.me||"").toLowerCase()===ADMIN;
+const SLOTEND={1:"09:45",2:"11:30"};
+const nowZ=()=>{const d=new Date();return d.toLocaleDateString("sv-SE",{timeZone:"Europe/Zurich"})+" "+d.toLocaleTimeString("sv-SE",{timeZone:"Europe/Zurich",hour:"2-digit",minute:"2-digit"})};
+const slotPast=(d,sl)=>(d+" "+SLOTEND[sl])<=nowZ();
+const locked=s=>slotPast(s.date,s.slot)&&!(S.unlocked&&S.unlocked.has(s.id));
+async function autoDone(){if(!S.ready)return;const ids=S.sessions.filter(s=>s.status==="gebucht"&&slotPast(s.date,s.slot)).map(s=>s.id);
+  if(!ids.length)return;const{error}=await client.from("mp_sessions").update({status:"durchgefuehrt"}).in("id",ids);if(!error)await reload("mp_sessions")}
 const blocked=d=>(S.config.blocked||[]).includes(d);
 const isJoker=id=>!!person(id)?.joker;
 const RANK={green:3,orange:2,red:1};
@@ -405,6 +416,7 @@ function renderSlots(){
 
 async function placePerson(d,sl,id,from,to){
   if(from===to)return;
+  if(slotPast(d,sl)){toast("This slot is over and locked.");renderSlots();return}
   const sess=l=>activeSess(d,sl).find(x=>x.lab===l);
   if(to){const t=sess(to);if(t&&t.vl1&&t.vl2&&(t.observers||[]).length>=1){toast(`${labName(to)} already has 3 people`);return}}
   let tgt=null;
@@ -522,8 +534,12 @@ function renderBook(){
     const w1=s.vl1&&!av.includes(s.vl1)&&!isJoker(s.vl1),w2=s.vl2&&!av.includes(s.vl2)&&!isJoker(s.vl2),w3=v3&&!av.includes(v3)&&!isJoker(v3);
     const dup=s.vl1&&s.vl1===s.vl2,dup3=v3&&(v3===s.vl1||v3===s.vl2);
     const usedL=new Set(S.sessions.filter(x=>x.id!==s.id&&x.date===s.date&&x.slot===s.slot).map(x=>x.lab));
-    const labOpt=[1,2,3].map(l=>`<option value="${l}" ${s.lab===l?"selected":""} ${usedL.has(l)?"disabled":""}>${labName(l)}${usedL.has(l)?" (taken)":""}</option>`).join("");
-    html+=`<tr data-id="${esc(s.id)}" class="bkrow st-${esc(s.status)}"><td><select data-f="lab" class="labsel" aria-label="Lab">${labOpt}</select></td>
+    const labOpt=[1,2,3].map(l=>`<option value="${l}" ${s.lab===l?"selected":""}>${labName(l)}${usedL.has(l)?" ⇄ swap":""}</option>`).join("");
+    const lk=locked(s),past=slotPast(s.date,s.slot);
+    const act=lk?(isAdmin()?`<button class="ghost lockbtn" data-unlock="${esc(s.id)}" title="Only Lorena can unlock">🔒 Unlock</button>`:`<span title="Slot is over: no more changes">🔒</span>`)
+      :past?`<button class="ghost lockbtn" data-relock="${esc(s.id)}">🔓 Lock</button>`
+      :S.deleting===s.id?`<span class="confirm"><button data-delyes="${esc(s.id)}">Delete</button><button class="ghost" data-delno>Cancel</button></span>`:`<button class="ghost" data-del="${esc(s.id)}" aria-label="Delete session">✕</button>`;
+    let row=`<tr data-id="${esc(s.id)}" class="bkrow st-${esc(s.status)}${lk?" locked":""}"><td><select data-f="lab" class="labsel" aria-label="Lab">${labOpt}</select></td>
      <td><select data-f="status" class="stsel s-${esc(s.status)}" aria-label="Status">${STATUS.map(([k,v])=>`<option value="${k}" ${s.status===k?"selected":""}>${v}</option>`).join("")}</select></td>
      <td><select data-f="protocol" class="prot p-${esc(s.protocol||"")}" aria-label="Protocol"><option value="">–</option><option value="A" ${s.protocol==="A"?"selected":""}>A</option><option value="B" ${s.protocol==="B"?"selected":""}>B</option></select></td>
      <td><input data-f="subject" value="${esc(s.subject)}" placeholder="Name or code" aria-label="Participant"></td>
@@ -532,7 +548,9 @@ function renderBook(){
      <td><select data-f="vl1" aria-label="Experimenter 1">${opt(s.vl1)}</select>${w1?'<span class="warn">⚠ not available</span>':""}</td>
      <td><select data-f="vl2" aria-label="Experimenter 2">${opt(s.vl2)}</select>${dup?'<span class="warn">⚠ same person twice</span>':w2?'<span class="warn">⚠ not available</span>':""}</td>
      <td><select data-x3 aria-label="Experimenter 3">${opt(v3)}</select>${dup3?'<span class="warn">⚠ same person twice</span>':w3?'<span class="warn">⚠ not available</span>':""}</td>
-     <td style="white-space:nowrap">${S.deleting===s.id?`<span class="confirm"><button data-delyes="${esc(s.id)}">Delete</button><button class="ghost" data-delno>Cancel</button></span>`:`<button class="ghost" data-del="${esc(s.id)}" aria-label="Delete session">✕</button>`}</td></tr>`;
+     <td style="white-space:nowrap">${act}</td></tr>`;
+    if(lk)row=row.replace(/<(select|input)\b/g,"<$1 disabled");
+    html+=row;
   }
   el.innerHTML=html+`</tbody></table></div>`;
 }
@@ -579,6 +597,8 @@ document.addEventListener("click",async e=>{
     if(z){const g=S.grab;const[d,sl,l]=(z.dataset.lab||z.dataset.pool).split("|");
       if(d===g.d&&Number(sl)===g.sl){S.grab=null;await placePerson(g.d,g.sl,g.id,g.lab,z.dataset.lab?Number(l):0);return}}}
   const t=e.target.closest("button");if(!t||!S.ready)return;
+  if(t.dataset.unlock){if(!isAdmin())return;(S.unlocked=S.unlocked||new Set()).add(t.dataset.unlock);renderBook();return}
+  if(t.dataset.relock){S.unlocked&&S.unlocked.delete(t.dataset.relock);renderBook();return}
   if(t.dataset.grab){const r=parseRef(t.dataset.grab);const g=S.grab;
     S.grab=(g&&g.d===r.d&&g.sl===r.sl&&g.id===r.id)?null:r;renderSlots();return}
   if(t.dataset.rm){const r=parseRef(t.dataset.rm);S.grab=null;await placePerson(r.d,r.sl,r.id,r.lab,0);return}
@@ -629,6 +649,16 @@ document.addEventListener("change",async e=>{
   if(t.id==="cfgStart"||t.id==="cfgEnd"){if(!t.value)return;
     await run(client.from("mp_config").update({[t.id==="cfgStart"?"start_day":"end_day"]:t.value}).eq("id",1),"mp_config");return}
   const tr=t.closest("tr[data-id]");
+  if(tr){const s0=S.sessions.find(x=>x.id===tr.dataset.id);if(s0&&locked(s0)){toast("This slot is over and locked.");renderBook();return}}
+  if(tr&&t.dataset.f==="lab"){const s=S.sessions.find(x=>x.id===tr.dataset.id);if(!s)return;const to=Number(t.value),from=s.lab;if(to===from)return;
+    const other=S.sessions.find(x=>x.id!==s.id&&x.date===s.date&&x.slot===s.slot&&x.lab===to);
+    if(other&&locked(other)){toast(labName(to)+" is locked");renderBook();return}
+    const up=(id,lab)=>client.from("mp_sessions").update({lab}).eq("id",id);
+    let r;
+    if(other){r=await up(s.id,4);if(!r.error)r=await up(other.id,from);if(!r.error)r=await up(s.id,to);}
+    else r=await up(s.id,to);
+    if(r.error)toast(msg(r.error));else toast(other?`${labName(from)} ⇄ ${labName(to)} swapped (only the room changed)`:`Moved to ${labName(to)}`);
+    await reload("mp_sessions");return}
   if(tr&&t.dataset.x3!==undefined){
     await run(client.from("mp_sessions").update({observers:t.value?[t.value]:[]}).eq("id",tr.dataset.id),"mp_sessions");return}
   if(tr&&t.dataset.obsadd!==undefined&&t.value){const s=S.sessions.find(x=>x.id===tr.dataset.id);if(!s)return;
@@ -640,8 +670,9 @@ document.addEventListener("change",async e=>{
 // ---------- auth ----------
 function show(v){$("#loginView").hidden=v!=="login";$("#appView").hidden=v!=="app";$("#who").hidden=v!=="app"}
 async function enter(user){
-  show("app");$("#whoami").textContent=user?.email||"";
-  try{await Promise.all([loadPeople(),loadAvail(),loadSessions(),loadConfig()]);S.ready=true;banner("");renderAll();subscribe()}
+  show("app");$("#whoami").textContent=user?.email||"";S.me=user?.email||"";
+  try{await Promise.all([loadPeople(),loadAvail(),loadSessions(),loadConfig()]);S.ready=true;banner("");renderAll();subscribe();
+    autoDone();clearInterval(S.doneTimer);S.doneTimer=setInterval(()=>{autoDone();if(location.hash==="#buchungen")renderBook()},120000)}
   catch(e){banner("The data could not be loaded: "+((e&&e.message)||e)+". Has migration_messplanung.sql been run in Supabase?",true)}
 }
 async function login(){
